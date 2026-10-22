@@ -1,6 +1,8 @@
 # Markdown.
 
-A two-pane markdown viewer in the ULDAGON style. Source left, preview right; edit either side.
+A two-pane markdown preview in the ULDAGON style. Source left, preview right; edit either side. Drop a .md file on a card to open it.
+
+The footer has `clear` on the left and the theme switch on the right. `debug` in the footer, or ⌘. (ctrl+. elsewhere), opens a panel that changes spacing, shape, buttons, type, colours, grain and motion live. It keeps the values in localStorage; `copy css` gives the changed values as CSS for the code.
 
 ```sh
 npm install
@@ -16,11 +18,14 @@ Next.js (App Router), React and TypeScript. The tokens in `src/styles/uldagon.cs
 | file | what |
 |---|---|
 | `src/app/` | layout (fonts, theme script), page, global styles |
-| `src/components/Editor.tsx` | state, file open and download, keys, scroll sync between the two cards |
+| `src/components/Editor.tsx` | state, file drop, clear, keys, scroll sync between the two cards |
+| `src/components/Footer.tsx` | clear, the status line, the key hints or a note, the debug link, the theme switch |
+| `src/components/DebugPanel.tsx`, `useDebug.ts` | the debug panel, and its values on `<html>` |
+| `src/lib/debug-controls.ts` | the settings of the debug panel: each one a CSS property or a data attribute that `globals.css` reads |
 | `src/components/Toolbar.tsx` | the one tool list both cards share, and the inline field for a URL or TeX |
-| `src/components/Preview.tsx` | the rendered card; its block tools and inline code make the source edits of the markdown card |
+| `src/components/Preview.tsx` | the rendered card; its tools make the source edits of the markdown card |
 | `src/components/preview-selection.ts` | a selection in the preview as a selection of the source, and back |
-| `src/components/preview-commands.ts` | the rich-text tools of the preview: bold, italic, strike, link |
+| `src/components/preview-commands.ts` | the link tool, Enter in lists and quotes, and the toolbar state of the preview |
 | `src/lib/source-edits.ts` | markdown edits on the source as pure functions |
 | `src/lib/store.ts` | localStorage that never throws; `set` says whether the value was kept |
 | `src/lib/stats.ts` | the status line: characters, size, reading time |

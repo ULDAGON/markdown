@@ -349,17 +349,6 @@ test("⌘B in a raw textarea does not bold anything and keeps the textarea open"
   expect(await sourceText(page)).toBe("para\n\n```\nold\n```");
 });
 
-test("⌘S in a raw textarea downloads the file and keeps the textarea open", async ({ page }) => {
-  await open(page, "para\n\n```\nold\n```");
-  await openRaw(page, richBlocks(page).first());
-  await raw(page).fill("```\nnew\n```");
-  const download = page.waitForEvent("download");
-  await raw(page).press("Meta+s");
-  await download;
-  await expect(raw(page)).toHaveCount(1);
-  await expect(raw(page)).toHaveValue("```\nnew\n```");
-});
-
 test("a raw edit then the theme switch commits the edit", async ({ page }) => {
   await open(page, "para\n\n```\nold\n```");
   await openRaw(page, richBlocks(page).first());

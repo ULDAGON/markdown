@@ -21,8 +21,9 @@ const latinExt = localFont({
   declarations: [{ prop: "font-family", value: "JetBrains Mono" }, { prop: "unicode-range", value: "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF" }],
 });
 
-// Runs before first paint: the stored choice, then the system.
-const themeScript = `(function(){try{var t=localStorage.getItem("md.theme");document.documentElement.dataset.theme=t||(matchMedia("(prefers-color-scheme: light)").matches?"light":"dark")}catch(e){}})();`;
+// Runs before first paint: the stored theme, else the system's; then the values of the debug panel, as
+// applyDebug (lib/debug-controls.ts) sets them, so the page does not flash in the defaults first.
+const themeScript = `(function(){try{var r=document.documentElement,t=localStorage.getItem("md.theme");r.dataset.theme=t||(matchMedia("(prefers-color-scheme: light)").matches?"light":"dark");var d=JSON.parse(localStorage.getItem("md.debug")||"{}");for(var k in d){var p=k.split("@");if(p[1]&&p[1]!==r.dataset.theme)continue;if(p[0].indexOf("--")===0)r.style.setProperty(p[0],d[k]);else r.setAttribute(p[0],d[k])}}catch(e){}})();`;
 
 export const metadata: Metadata = { title: "Markdown." };
 

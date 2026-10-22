@@ -26,7 +26,9 @@ function themeVariables() {
     lineColor: colour("--c-text-dim"),
     textColor: colour("--c-text"),
     fontFamily: token("--mono"),
+    // ULDAGON surfaces are flat: mermaid 12 shades its nodes with a shadow and a gradient border by default.
     dropShadow: "none",
+    useGradient: false,
   };
 }
 
@@ -38,8 +40,10 @@ async function drawAll(root: HTMLElement) {
     const { default: mermaid } = await import("mermaid");
     // initialize is global, so a draw that another one overtook at an await must stop: it would render or cache with the wrong theme.
     if (mine !== latest) return;
-    const theme = document.documentElement.dataset.theme;
-    mermaid.initialize({ startOnLoad: false, theme: "base", securityLevel: "strict", themeVariables: themeVariables() });
+    // The colours, not the name of the theme: the debug panel changes them inside one theme.
+    const variables = themeVariables();
+    const theme = JSON.stringify(variables);
+    mermaid.initialize({ startOnLoad: false, theme: "base", securityLevel: "strict", themeVariables: variables });
     for (const diagram of diagrams) {
       const pre = diagram.querySelector("pre");
       if (!pre) continue;
@@ -67,12 +71,13 @@ async function drawAll(root: HTMLElement) {
   drawn = used;
 }
 
-/** Draw the diagrams of the article with Mermaid in the colours of the theme, and again when the theme changes. */
+/** Draw the diagrams of the article with Mermaid in the colours of the theme, and again when the colours change. */
 export function useMermaid(article: RefObject<HTMLElement | null>) {
   const draw = useCallback(() => drawAll(article.current!), [article]);
   useEffect(() => {
     const observer = new MutationObserver(draw);
-    observer.observe(document.documentElement, { attributeFilter: ["data-theme"] });
+    // data-theme switches the colours; style holds the colours of the debug panel. A draw with the same colours is a cache hit.
+    observer.observe(document.documentElement, { attributeFilter: ["data-theme", "style"] });
     return () => observer.disconnect();
   }, [draw]);
   return draw;

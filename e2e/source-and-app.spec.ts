@@ -1,10 +1,8 @@
-import { readFile } from "node:fs/promises";
 import type { Locator, Page } from "@playwright/test";
 import { article, clickTool, expect, open, pickHeading, previewBlocks, sourceArea, sourceText, test } from "./helpers";
 
 const MOD = "ControlOrMeta";
 const region = (page: Page, name: "markdown" | "preview") => page.getByRole("region", { name, exact: true });
-const fileName = (page: Page) => page.getByLabel("file name");
 const note = (page: Page) => page.locator("footer.status .keys");
 const statusNumbers = (page: Page) => page.locator("footer.status .num");
 
@@ -400,7 +398,7 @@ test("the note of clear goes away by itself", async ({ page }) => {
   await open(page, "something");
   await page.getByRole("button", { name: "clear", exact: true }).click();
   await expect(note(page)).toContainText("cleared");
-  await expect(note(page)).toContainText("download", { timeout: 6000 });
+  await expect(note(page)).toContainText("link", { timeout: 6000 });
   await expect(note(page)).not.toContainText("cleared");
 });
 
@@ -420,11 +418,10 @@ async function drop(target: Locator, { name, content }: Dropped) {
 }
 
 for (const card of ["markdown", "preview"] as const) {
-  test(`a file dropped on the ${card} card replaces the text, the file name, and shows a note`, async ({ page }) => {
+  test(`a file dropped on the ${card} card replaces the text and shows a note`, async ({ page }) => {
     await open(page, "old text");
     await drop(region(page, card), { name: "dropped.md", content: "# Dropped\n\nfrom a file" });
     await expect(sourceArea(page)).toHaveValue("# Dropped\n\nfrom a file");
-    await expect(fileName(page)).toHaveValue("dropped.md");
     await expect(note(page)).toContainText("opened dropped.md");
     await expect(article(page).locator("h1")).toHaveText(/^Dropped/);
     await expect(page.locator("main.panes")).not.toHaveAttribute("data-drop", /.*/);
@@ -448,17 +445,14 @@ test("a dropped file with CRLF line breaks is normalised", async ({ page }) => {
   await expect(statusNumbers(page)).toContainText("4 characters");
   const stored = await page.evaluate(() => localStorage.getItem("md.text"));
   expect(stored).toBe("a\nb\n");
-  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "download" }).click()]);
-  expect(await readFile((await download.path())!, "utf8")).toBe("a\nb\n");
 });
 
-test("a dropped file is kept after a reload, with its name", async ({ page }) => {
+test("a dropped file is kept after a reload", async ({ page }) => {
   await open(page, "old");
   await drop(region(page, "markdown"), { name: "kept.md", content: "kept" });
   await expect(sourceArea(page)).toHaveValue("kept");
   await page.reload();
   await expect(sourceArea(page)).toHaveValue("kept");
-  await expect(fileName(page)).toHaveValue("kept.md");
 });
 
 test("an empty file dropped on the card clears the text and can be undone", async ({ page }) => {
@@ -499,92 +493,11 @@ test("a file drag over the cards marks the drop and leaving removes the mark", a
   await expect(panes).not.toHaveAttribute("data-drop", /.*/);
 });
 
-// ---------------------------------------------------------------------------------------------------------- file name and download
-
-test("the file name persists after a reload", async ({ page }) => {
-  await open(page, "x");
-  await expect(fileName(page)).toHaveValue("untitled.md");
-  await fileName(page).fill("my notes.md");
-  await page.reload();
-  await expect(fileName(page)).toHaveValue("my notes.md");
-});
-
-async function download(page: Page, trigger: () => Promise<void>) {
-  const [file] = await Promise.all([page.waitForEvent("download"), trigger()]);
-  return { name: file.suggestedFilename(), content: await readFile((await file.path())!, "utf8") };
-}
-
-const names: [typed: string, saved: string][] = [
-  ["notes", "notes.md"],
-  ["notes.md", "notes.md"],
-  ["notes.txt", "notes.txt"],
-  ["a/b:c", "a-b-c.md"],
-  ["a*b?c|d", "a-b-c-d.md"],
-  ["", "untitled.md"],
-  ["   ", "untitled.md"],
-  ["  padded  ", "padded.md"],
-];
-
-for (const [typed, saved] of names) {
-  test(`download names the file ${JSON.stringify(typed)} as ${saved}, with the exact source`, async ({ page }) => {
-    const text = "# Ünïcode ✓\nline\n\n  indented\n";
-    await open(page, text);
-    const source = await sourceText(page);
-    await fileName(page).fill(typed);
-    const file = await download(page, () => page.getByRole("button", { name: "download" }).click());
-    expect(file.name).toBe(saved);
-    expect(file.content).toBe(source);
-    await expect(note(page)).toContainText(`saved ${saved}`);
-  });
-}
-
-test("download after a tool edit has the edited text", async ({ page }) => {
-  await openMarked(page, "‹one›");
-  await clickTool(page, "markdown", "bold");
-  const file = await download(page, () => page.getByRole("button", { name: "download" }).click());
-  expect(file.content).toBe("**one**");
-});
-
-test("download of an empty document gives an empty file", async ({ page }) => {
-  await open(page, "");
-  const file = await download(page, () => page.getByRole("button", { name: "download" }).click());
-  expect(file).toEqual({ name: "untitled.md", content: "" });
-});
-
-test("the key ⌘S downloads from the source", async ({ page }) => {
-  await open(page, "from source");
-  await sourceArea(page).focus();
-  const file = await download(page, () => page.keyboard.press(`${MOD}+s`));
-  expect(file).toEqual({ name: "untitled.md", content: "from source" });
-});
-
-test("the key ⌘S downloads from the preview", async ({ page }) => {
-  await open(page, "from preview");
-  await article(page).click();
-  const file = await download(page, () => page.keyboard.press(`${MOD}+s`));
-  expect(file).toEqual({ name: "untitled.md", content: "from preview" });
-});
-
-test("the key ⌘S downloads from the body", async ({ page }) => {
-  await open(page, "from body");
-  await page.locator("footer.status").click();
-  const file = await download(page, () => page.keyboard.press(`${MOD}+s`));
-  expect(file).toEqual({ name: "untitled.md", content: "from body" });
-});
-
-test("the key ⌘S downloads from the file name field and does not save the page", async ({ page }) => {
-  await open(page, "from field");
-  await fileName(page).fill("field");
-  const file = await download(page, () => page.keyboard.press(`${MOD}+s`));
-  expect(file).toEqual({ name: "field.md", content: "from field" });
-});
-
 // ---------------------------------------------------------------------------------------------------------- persistence
 
 test("the first visit shows the sample", async ({ page }) => {
   await page.goto("/");
   await expect(sourceArea(page)).toHaveValue(/^# Hello/);
-  await expect(fileName(page)).toHaveValue("untitled.md");
   await expect(article(page).locator("h1")).toHaveText(/^Hello/);
 });
 
@@ -620,7 +533,7 @@ test("a storage that refuses to write shows one note and the app keeps working",
   await sourceArea(page).press("End");
   await page.keyboard.type("!");
   await expect(note(page)).toContainText("not saved");
-  await expect(note(page)).toContainText("download", { timeout: 6000 });
+  await expect(note(page)).toContainText("link", { timeout: 6000 });
 
   // The user knows: the next edit shows no second note.
   await page.keyboard.type("?");
@@ -628,13 +541,13 @@ test("a storage that refuses to write shows one note and the app keeps working",
   await expect(note(page)).not.toContainText("not saved");
   await expect(sourceArea(page)).toHaveValue("# kept in memory!?");
 
-  // Tools, the theme switch and download still work.
+  // Tools and the theme switch still work.
   await setSelection(page, 2, 6);
   await clickTool(page, "markdown", "bold");
   await expect(sourceArea(page)).toHaveValue("# **kept** in memory!?");
+  const theme = await page.evaluate(() => document.documentElement.dataset.theme);
   await page.getByRole("switch").click();
-  const file = await download(page, () => page.getByRole("button", { name: "download" }).click());
-  expect(file.content).toBe("# **kept** in memory!?");
+  await expect(page.locator("html")).not.toHaveAttribute("data-theme", theme!);
 });
 
 // ---------------------------------------------------------------------------------------------------------- theme
@@ -771,47 +684,29 @@ test("a short document that does not scroll breaks nothing in the scroll sync", 
 test.describe("layout at 1440x900", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("the header is one line and its halves line up with the cards", async ({ page }) => {
+  test("there is no header: the cards start at the page padding, and the footer is one line under them", async ({ page }) => {
     await page.goto("/");
     await expect(sourceArea(page)).toHaveValue(/^# Hello/);
     const box = async (locator: Locator) => (await locator.boundingBox())!;
     const clear = await box(page.getByRole("button", { name: "clear", exact: true }));
-    const logo = await box(page.locator("header.top .brand"));
-    const name = await box(fileName(page));
-    const downloadButton = await box(page.getByRole("button", { name: "download" }));
+    const debug = await box(page.getByRole("button", { name: "debug", exact: true }));
     const toggle = await box(page.getByRole("switch"));
+    const stats = await box(statusNumbers(page));
     const source = await box(region(page, "markdown"));
     const preview = await box(region(page, "preview"));
-    const header = await box(page.locator("header.top"));
+    await expect(page.locator("header")).toHaveCount(0);
 
-    expect(Math.abs(clear.x + clear.width - (source.x + source.width))).toBeLessThanOrEqual(1);
-    expect(Math.abs(logo.x - source.x)).toBeLessThanOrEqual(1);
-    expect(Math.abs(name.x - preview.x)).toBeLessThanOrEqual(1);
-    expect(Math.abs(toggle.x + toggle.width - (preview.x + preview.width))).toBeLessThanOrEqual(1);
-
-    // One line: every control has its centre on the same height.
-    const centres = [clear, logo, name, downloadButton, toggle].map((b) => b.y + b.height / 2);
-    expect(Math.max(...centres) - Math.min(...centres)).toBeLessThanOrEqual(3);
-    expect(header.height).toBeLessThan(70);
-    // Nothing of the second half overlaps the first, and the controls do not overlap each other.
-    expect(name.x + name.width).toBeLessThanOrEqual(downloadButton.x);
-    expect(downloadButton.x + downloadButton.width).toBeLessThanOrEqual(toggle.x);
-    expect(logo.x + logo.width).toBeLessThanOrEqual(clear.x);
-    // The cards start below the header.
-    expect(source.y).toBeGreaterThanOrEqual(header.y + header.height);
+    expect(Math.abs(source.y - 20)).toBeLessThanOrEqual(1);
     expect(Math.abs(source.y - preview.y)).toBeLessThanOrEqual(1);
-  });
-
-  test("the header keeps its line with a long file name", async ({ page }) => {
-    await open(page, "x");
-    await fileName(page).fill("a very long file name that goes on and on and on and on and on.md");
-    const name = (await fileName(page).boundingBox())!;
-    const toggle = (await page.getByRole("switch").boundingBox())!;
-    const preview = (await region(page, "preview").boundingBox())!;
-    const header = (await page.locator("header.top").boundingBox())!;
-    expect(header.height).toBeLessThan(70);
-    expect(name.x + name.width).toBeLessThanOrEqual(toggle.x);
-    expect(toggle.x + toggle.width).toBeLessThanOrEqual(preview.x + preview.width + 1);
+    // Clear at the bottom left, the theme at the bottom right, both lined up with the cards.
+    expect(Math.abs(clear.x - source.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(toggle.x + toggle.width - (preview.x + preview.width))).toBeLessThanOrEqual(1);
+    const centres = [clear, stats, debug, toggle].map((b) => b.y + b.height / 2);
+    expect(Math.max(...centres) - Math.min(...centres)).toBeLessThanOrEqual(3);
+    expect(clear.y).toBeGreaterThanOrEqual(source.y + source.height);
+    expect(clear.x + clear.width).toBeLessThanOrEqual(stats.x);
+    expect(debug.x + debug.width).toBeLessThanOrEqual(toggle.x);
+    expect(toggle.y + toggle.height).toBeLessThanOrEqual(900);
   });
 });
 
@@ -831,10 +726,7 @@ test.describe("layout at 390x844", () => {
 
     // Everything the user touches lies inside the viewport, and no two of them overlap.
     const parts = await page.evaluate(() => {
-      const picks = [
-        "header.top .brand", "header.top .btn:not(.primary)", "header.top .field", "header.top .btn.primary", "header.top .switch",
-        "footer.status .num",
-      ];
+      const picks = ["footer.status .btn", "footer.status .num", "footer.status .link", "footer.status .switch"];
       const toolbars = [...document.querySelectorAll(".toolbar")].flatMap((bar, i) => [...bar.children].map((child, j) => ({ name: `toolbar ${i} child ${j}`, el: child })));
       const named = picks.map((selector) => ({ name: selector, el: document.querySelector(selector)! }));
       return [...named, ...toolbars].map(({ name, el }) => {
@@ -856,7 +748,7 @@ test.describe("layout at 390x844", () => {
     }
   });
 
-  test("the header controls stay in the viewport and the preview card can be reached by scrolling", async ({ page }) => {
+  test("the preview card can be reached by scrolling", async ({ page }) => {
     await page.goto("/");
     const preview = region(page, "preview");
     await preview.scrollIntoViewIfNeeded();

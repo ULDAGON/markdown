@@ -4,11 +4,11 @@ import { continueList, headingLevel, sourceEdit, type ToolId } from "@/lib/sourc
 import { SAMPLE } from "@/lib/sample";
 import { store } from "@/lib/store";
 import { applyEdit } from "./apply-edit";
-import Brand from "./Brand";
+import DebugPanel from "./DebugPanel";
+import Footer from "./Footer";
 import Preview from "./Preview";
-import StatusBar from "./StatusBar";
-import ThemeToggle from "./ThemeToggle";
 import Toolbar, { KEYMAP } from "./Toolbar";
+import { useDebug } from "./useDebug";
 import { useMod } from "./useMod";
 import { useScrollSync } from "./useScrollSync";
 
@@ -16,10 +16,11 @@ const normalise = (text: string) => text.replace(/\r\n/g, "\n");
 
 export default function Editor() {
   const [text, setText] = useState("");
-  const [name, setName] = useState("untitled.md");
   const [caret, setCaret] = useState(0);
   const [note, setNote] = useState<string | null>(null);
   const [dropping, setDropping] = useState(false);
+  const [debugging, setDebugging] = useState(false);
+  const debug = useDebug();
   const source = useRef<HTMLTextAreaElement>(null);
   const preview = useRef<HTMLElement>(null);
   const noteTimer = useRef(0);
@@ -31,7 +32,6 @@ export default function Editor() {
   // localStorage exists only in the browser, so the saved text loads after the first render.
   useEffect(() => {
     setText(normalise(store.get("md.text") ?? SAMPLE));
-    setName(store.get("md.name") ?? "untitled.md");
   }, []);
 
   function say(message: string) {
@@ -43,13 +43,8 @@ export default function Editor() {
   function change(next: string) {
     setText(next);
     const kept = store.set("md.text", next);
-    if (!kept && !unsaved.current) say("not saved: the browser storage is full. download to keep it.");
+    if (!kept && !unsaved.current) say("not saved: the browser storage is full.");
     unsaved.current = !kept;
-  }
-
-  function rename(next: string) {
-    setName(next);
-    store.set("md.name", next);
   }
 
   // ------------------------------------------------------------------ source
@@ -74,18 +69,6 @@ export default function Editor() {
   }
 
   // ------------------------------------------------------------------ file
-  function fileName() {
-    const raw = name.trim().replace(/[\\/:*?"<>|]/g, "-") || "untitled.md";
-    return /\.(md|markdown|mdx|txt)$/i.test(raw) ? raw : `${raw}.md`;
-  }
-
-  function download() {
-    const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }));
-    Object.assign(document.createElement("a"), { href: url, download: fileName() }).click();
-    URL.revokeObjectURL(url);
-    say(`saved ${fileName()}.`);
-  }
-
   // Replace the whole text through the textarea, so ⌘z brings the old text back.
   function replaceAll(next: string) {
     applyEdit(source.current!, { start: 0, end: source.current!.value.length, text: next, select: [0, 0] });
@@ -93,46 +76,29 @@ export default function Editor() {
 
   async function open(file: File) {
     replaceAll(normalise(await file.text()));
-    rename(file.name);
     say(`opened ${file.name}. ${mod}z in the source to undo.`);
   }
 
-  // ⌘s downloads from anywhere on the page.
+  function clear() {
+    replaceAll("");
+    say(`cleared. ${mod}z in the source to undo.`);
+  }
+
+  // ⌘. opens and closes the debug panel from anywhere on the page.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== "s") return;
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key !== ".") return;
       e.preventDefault();
-      download();
+      setDebugging((open) => !open);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  });
+  }, []);
 
   const hasFile = (e: React.DragEvent) => e.dataTransfer.types.includes("Files");
 
   return (
     <>
-      {/* One line over the two panes: each half holds the controls of the pane below it. */}
-      <header className="top">
-        <div className="row">
-          <Brand />
-          <button className="btn" onClick={() => { replaceAll(""); say(`cleared. ${mod}z in the source to undo.`); }}>clear</button>
-        </div>
-        <div className="row">
-          <input
-            className="field"
-            value={name}
-            onChange={(e) => rename(e.target.value)}
-            spellCheck={false}
-            autoComplete="off"
-            aria-label="file name"
-            placeholder="untitled.md"
-          />
-          <button className="btn primary" onClick={download}>download</button>
-          <ThemeToggle />
-        </div>
-      </header>
-
       <main
         className="panes"
         data-drop={dropping || undefined}
@@ -162,7 +128,8 @@ export default function Editor() {
         <Preview markdown={text} onChange={change} ref={preview} />
       </main>
 
-      <StatusBar text={text} note={note} />
+      <Footer text={text} note={note} onClear={clear} onDebug={() => setDebugging((open) => !open)} />
+      {debugging && <DebugPanel debug={debug} onClose={() => setDebugging(false)} say={say} />}
     </>
   );
 }
