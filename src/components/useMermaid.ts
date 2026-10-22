@@ -26,6 +26,7 @@ function themeVariables() {
     lineColor: colour("--c-text-dim"),
     textColor: colour("--c-text"),
     fontFamily: token("--mono"),
+    dropShadow: "none",
   };
 }
 
