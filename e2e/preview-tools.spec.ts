@@ -171,12 +171,13 @@ test("italic on bold text keeps the bold word and adds the italic", async ({ pag
   expect(await sourceText(page)).toMatch(/^alpha (\*\*[_*]beta[_*]\*\*|[_*]\*\*beta\*\*[_*]|\*\*\*beta\*\*\*) gamma$/);
 });
 
-test("bold on a part of a bold word un-bolds that part only", async ({ page }) => {
+// A selection inside a bold span takes the whole span off, as in the markdown card.
+test("bold on a part of a bold word takes the bold off", async ({ page }) => {
   await open(page, "alpha **beta** gamma");
   await select(page, "preview", { text: "beta", offset: 1 }, { text: "beta", offset: 3 });
   await clickTool(page, "preview", "bold");
   await leavePreview(page);
-  await expect(sourceArea(page)).toHaveValue("alpha **b**et**a** gamma");
+  await expect(sourceArea(page)).toHaveValue("alpha beta gamma");
 });
 
 test("bold on a whole bold word removes the bold", async ({ page }) => {
@@ -245,13 +246,20 @@ const blockPlaces: { name: string; markdown: string; kind: Kind; sel: Sel }[] = 
 ];
 
 const own: Partial<Record<Tool, Kind>> = { quote: "quote", "bullet list": "ul", "numbered list": "ol", "task list": "task" };
+// A table row takes no line syntax, a task item holds no heading, and h2 on an h2 is that h2: both cards change nothing.
+const lineTools: Tool[] = ["h2", "quote", "bullet list", "numbered list", "task list"];
+const unchanged = (tool: Tool, name: string, kind: Kind) =>
+  (name === "a table cell" && lineTools.includes(tool)) || (tool === "h2" && (name === "a task item" || kind === "heading"));
 // The heading picker has no toggle: h2 then text restores every line that is not a heading.
 const restores = (tool: Tool, kind: Kind) => (tool === "h2" ? kind !== "heading" && kind !== "mixed" : tool in own && (kind === "plain" || kind === own[tool]));
 for (const tool of blockTools) {
   for (const { name, markdown, kind, sel } of blockPlaces) {
     // The source of the markdown card on the same text; a toggle tool twice restores the source.
     test(`${tool} on ${name}`, async ({ page }) => {
-      test.skip(tool === "h2" && kind === "heading", "h2 on an h2 changes nothing");
+      if (unchanged(tool, name, kind)) {
+        for (const card of ["markdown", "preview"] as const) expect(await run(page, card, markdown, sel, tool)).toBe(markdown);
+        return;
+      }
       await parity(page, markdown, sel, tool);
       if (restores(tool, kind)) expect(await run(page, "preview", markdown, sel, tool, tool === "h2" ? "text" : tool)).toBe(markdown);
     });
@@ -324,7 +332,7 @@ test("a task list on a bullet list keeps the items and adds the boxes", async ({
 
 test("a quote on a heading, and the heading picker on a quote", async ({ page }) => {
   expect(await run(page, "preview", "## Title", [{ text: "Title", offset: 2 }], "quote")).toBe("> ## Title");
-  expect(await run(page, "preview", "> quoted", [{ text: "quoted", offset: 2 }], "h2")).toBe("## > quoted");
+  expect(await run(page, "preview", "> quoted", [{ text: "quoted", offset: 2 }], "h2")).toBe("> ## quoted");
 });
 
 test("a code block on several lines wraps them in one fence", async ({ page }) => {

@@ -81,7 +81,8 @@ const cases: Case[] = [
   { name: "bullet list off", tool: "bullet list", spec: "‹- a\n- b›", after: "a\nb" },
   { name: "bullet list on a numbered list", tool: "bullet list", spec: "‹1. a\n2. b›", after: "- a\n- b" },
   { name: "bullet list on a task list", tool: "bullet list", spec: "‹- [ ] a\n- [x] b›", after: "- a\n- b" },
-  { name: "bullet list on a nested item", tool: "bullet list", spec: "- a\n  - ‹b›", after: "- a\n  b", twice: true },
+  // Off, the item is a paragraph of its own: a blank line keeps it from continuing the item above.
+  { name: "bullet list on a nested item", tool: "bullet list", spec: "- a\n  - ‹b›", after: "- a\n\n  b", twice: true },
   // numbered list
   { name: "numbered list on a caret", tool: "numbered list", spec: "on‹e", after: "1. one", twice: true },
   { name: "numbered list on several lines", tool: "numbered list", spec: "‹a\nb\nc›", after: "1. a\n2. b\n3. c", twice: true },
@@ -90,7 +91,8 @@ const cases: Case[] = [
   { name: "numbered list renumbers a mixed selection", tool: "numbered list", spec: "‹1. a\nb\n7. c›", after: "1. a\n2. b\n3. c" },
   { name: "numbered list off", tool: "numbered list", spec: "‹1. a\n2. b›", after: "a\nb" },
   { name: "numbered list off with a parenthesis marker", tool: "numbered list", spec: "‹1) a\n2) b›", after: "a\nb" },
-  { name: "numbered list on a nested item", tool: "numbered list", spec: "- a\n  - ‹b›", after: "- a\n  1. b", twice: true },
+  // A bullet item made numbered is a conversion, not a toggle: a second click takes the number off.
+  { name: "numbered list on a nested item", tool: "numbered list", spec: "- a\n  - ‹b›", after: "- a\n  1. b" },
   // task list
   { name: "task list on a caret", tool: "task list", spec: "on‹e", after: "- [ ] one", twice: true },
   { name: "task list on a lone bullet item", tool: "task list", spec: "- ‹a›", after: "- [ ] a" },
@@ -314,9 +316,9 @@ test("undo and redo go back one tool at a time", async ({ page }) => {
   await clickTool(page, "markdown", "quote");
   steps.push("> **alpha beta**");
   await clickTool(page, "markdown", "bullet list");
-  steps.push("- > **alpha beta**");
+  steps.push("> - **alpha beta**");
   await pickHeading(page, "markdown", 2);
-  steps.push("## - > **alpha beta**");
+  steps.push("> - ## **alpha beta**");
   await expect(sourceArea(page)).toHaveValue(steps.at(-1)!);
 
   for (let i = steps.length - 2; i >= 0; i--) {
@@ -588,6 +590,7 @@ test("the first visit shows the sample", async ({ page }) => {
 
 test("typed text is kept after a reload", async ({ page }) => {
   await page.goto("/");
+  await expect(article(page).locator("h1")).toHaveText(/^Hello/); // the app has loaded its text and listens
   await sourceArea(page).fill("typed *text*");
   await page.reload();
   await expect(sourceArea(page)).toHaveValue("typed *text*");

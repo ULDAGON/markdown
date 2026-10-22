@@ -814,14 +814,13 @@ test("a checkbox in raw html does nothing", async ({ page }) => {
   await expect(rawBox).toBeDisabled();
 });
 
-test("a checkbox in raw html that spans blocks does nothing", async ({ page }) => {
-  const doc = '<div>\n\n- [ ] inside\n\n</div>';
-  await open(page, doc);
-  const box = boxes(page);
-  if (await box.count()) await box.first().click({ force: true });
-  await synced(page);
+// A markdown task inside raw HTML toggles at its source offset, and the click does not open the raw editor.
+test("a checkbox of a task in raw html that spans blocks toggles only its box", async ({ page }) => {
+  await open(page, "<div>\n\n- [ ] inside\n\n</div>");
+  await boxes(page).first().click();
+  await expect(article(page).locator("textarea")).toHaveCount(0);
   await leavePreview(page);
-  expect(await sourceText(page)).toBe(doc);
+  expect(await sourceText(page)).toBe("<div>\n\n- [x] inside\n\n</div>");
 });
 
 // ---------------------------------------------------------------- security

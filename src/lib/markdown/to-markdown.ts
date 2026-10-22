@@ -1,14 +1,13 @@
 import type { Element, ElementContent } from "hast";
 import { fromHtml } from "hast-util-from-html";
 import { defaultHandlers, toMdast, type Handle, type State } from "hast-util-to-mdast";
-import type { Parent, Root } from "mdast";
+import type { ListItem, Parent, Root } from "mdast";
 import remarkGfm, { type Options as GfmOptions } from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import remarkStringify, { type Options } from "remark-stringify";
 import { unified } from "unified";
 import { EXIT, visit } from "unist-util-visit";
-import { hasClass } from "./render.ts";
 
 const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMath);
 
@@ -39,6 +38,11 @@ const handlers: Record<string, Handle> = {
 
 type Style = Options & GfmOptions;
 
+export function hasClass(node: Element, name: string): boolean {
+  const { className } = node.properties;
+  return Array.isArray(className) && className.includes(name);
+}
+
 export function toMarkdown(html: string, original: string): string {
   const mdast = toMdast(fromHtml(html, { fragment: true }), { handlers, newlines: true }) as Root;
   // Chrome types U+00A0 for a space that would collapse. A no-break space of the source makes its block rich (render.ts).
@@ -46,8 +50,10 @@ export function toMarkdown(html: string, original: string): string {
     if ("value" in node) node.value = node.value.replaceAll("\u00a0", " ");
   });
   visit(mdast, ["paragraph", "heading", "tableCell"] as const, trimBlock);
-  const style = styleOf(original);
-  return mdast.children[0]?.type === "table" ? keepTableRows(mdast, original, style) : stringify(mdast, style);
+  visit(mdast, "listItem", keepEmptyTaskBox);
+  const parsed = parser.parse(original);
+  const style = styleOf(parsed, original);
+  return mdast.children[0]?.type === "table" ? keepTableRows(mdast, parsed, original, style) : stringify(mdast, style);
 }
 
 function stringify(mdast: Root, style: Style): string {
@@ -77,10 +83,10 @@ const text: NonNullable<Options["handlers"]>["text"] = (node, parent, state, inf
  * The rows are compared without padding, because the padding of a row depends on the other rows.
  * A changed row is padded when the original lines are, which then all have one length.
  */
-function keepTableRows(table: Root, original: string, style: Style): string {
+function keepTableRows(table: Root, parsed: Root, original: string, style: Style): string {
   const lines = original.split("\n");
   const compact = { ...style, tablePipeAlign: false };
-  const before = stringify(parser.parse(original), compact).split("\n");
+  const before = stringify(parsed, compact).split("\n");
   const after = stringify(table, compact).split("\n");
   const written = new Set(lines.map((line) => line.length)).size === 1 ? stringify(table, style).split("\n") : after;
   return written.map((line, i) => (after[i] === before[i] ? lines[i] : line)).join("\n");
@@ -149,11 +155,24 @@ function trimBlock(block: Parent) {
   }
 }
 
+/**
+ * GFM writes the box of a task item in front of its text, so an empty task item would lose it.
+ * Its box is written as raw text: render.ts reads a list item of only `[ ]` as an empty task item.
+ */
+function keepEmptyTaskBox(item: ListItem) {
+  const empty = item.children.every((child) => child.type === "paragraph" && child.children.every((node) => node.type === "text" && !node.value));
+  if (item.checked == null || !empty) return;
+  item.children = [{ type: "paragraph", children: [{ type: "html", value: item.checked ? "[x]" : "[ ]" }] }];
+  item.checked = null;
+}
+
 /** Takes the markers that `original` uses, so an edit keeps the style of the source. */
-function styleOf(original: string): Style {
+function styleOf(parsed: Root, original: string): Style {
   const style: Style = { bullet: "-", emphasis: "*", strong: "*", fence: "`", rule: "-", listItemIndent: "one" };
-  visit(parser.parse(original), (node) => {
-    const start = node.position!.start.offset!;
+  visit(parsed, (node) => {
+    // A GFM autolink literal (`https://…` in text) makes nodes without a place in the source.
+    const start = node.position?.start.offset;
+    if (start === undefined) return;
     const mark = original[start];
     if (node.type === "emphasis") style.emphasis = mark as "*" | "_";
     if (node.type === "strong") style.strong = mark as "*" | "_";

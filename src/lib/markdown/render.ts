@@ -1,5 +1,5 @@
 import type { Element, ElementContent, Root, RootContent } from "hast";
-import type { Root as MdastRoot, RootContent as MdastContent } from "mdast";
+import type { Root as MdastRoot } from "mdast";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
@@ -12,6 +12,7 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified, type Transformer } from "unified";
 import { EXIT, SKIP, visit } from "unist-util-visit";
+import { hasClass, toMarkdown } from "./to-markdown.ts";
 
 export type BlockRange = { start: number; end: number };
 
@@ -32,15 +33,17 @@ const toHtml = unified()
   .use(linkFootnotes)
   .use(rehypeSlug)
   .use(rehypeKatex)
-  .use(lockRichContent)
   .use(trimTaskSpace)
+  .use(markLossyBlocks)
+  .use(lockRichContent)
   .use(rehypeHighlight)
   .use(rehypeStringify);
 
 export function render(markdown: string): { html: string; blocks: BlockRange[] } {
   const mdast = toHast.parse(markdown);
-  const planned = planBlocks(mdast, markdown);
+  const planned = planBlocks(mdast);
   const tree = toHtml.runSync(markBlocks(toHast.runSync(mdast, markdown), planned), markdown);
+  markTaskBoxes(tree, mdast, markdown);
   const blocks = tree.children.filter(isBlock).map((node) => ({
     start: Number(node.properties.dataStart),
     end: Number(node.properties.dataEnd),
@@ -48,47 +51,25 @@ export function render(markdown: string): { html: string; blocks: BlockRange[] }
   return { html: toHtml.stringify(tree), blocks };
 }
 
-export function hasClass(node: Element, name: string): boolean {
-  const { className } = node.properties;
-  return Array.isArray(className) && className.includes(name);
-}
-
 function isBlock(node: RootContent): node is Element {
   return node.type === "element" && node.properties.dataStart !== undefined;
 }
 
-/** Node types that toMarkdown drops or rewrites. */
-const LOSSY = new Set(["html", "linkReference", "imageReference", "definition", "footnoteDefinition"]);
-/** Text that toMarkdown rewrites: a character reference, and a no-break space, which toMarkdown takes for one that the browser typed. */
-const LOSSY_TEXT = /\u00a0|&(?:#\d+|#x[\da-f]+|[a-z][\da-z]*);/i;
-
 /**
- * The source range of each top-level block, and whether it is rich: edited as source text, not as rich text.
- * A block is rich when it has no rich-text form (code, math, raw HTML) or when toMarkdown cannot give its source back.
+ * The source range of each top-level block, and whether it is rich because it has no rich-text form: code, math and raw HTML.
  * A raw HTML block that opens a tag takes the blocks up to its closing tag, because the browser nests them in it.
  */
-function planBlocks(tree: MdastRoot, source: string): PlannedBlock[] {
+function planBlocks(tree: MdastRoot): PlannedBlock[] {
   const blocks: PlannedBlock[] = [];
   let openTags = 0;
   for (const node of tree.children) {
     const start = node.position!.start.offset!;
     const end = node.position!.end.offset!;
     if (openTags > 0) blocks.at(-1)!.end = end;
-    else blocks.push({ start, end, rich: isRich(node, source.slice(start, end)) });
+    else blocks.push({ start, end, rich: node.type === "code" || node.type === "math" || node.type === "html" });
     if (node.type === "html") openTags = Math.max(0, openTags + tagBalance(node.value));
   }
   return blocks;
-}
-
-function isRich(node: MdastContent, source: string): boolean {
-  if (node.type === "code" || node.type === "math" || LOSSY_TEXT.test(source)) return true;
-  let lossy = false;
-  visit(node, (child) => {
-    if (!LOSSY.has(child.type)) return;
-    lossy = true;
-    return EXIT;
-  });
-  return lossy;
 }
 
 const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
@@ -133,7 +114,7 @@ function markBlocks(tree: Root, planned: PlannedBlock[]): Root {
 }
 
 function markBlock({ start, end, rich }: PlannedBlock, nodes: RootContent[]): Element {
-  const properties = { dataStart: start, dataEnd: end, ...((rich || dropsUrl(nodes)) && { dataRich: true }) };
+  const properties = { dataStart: start, dataEnd: end, ...(rich && { dataRich: true }) };
   const [node] = nodes;
   // Sanitize drops doctypes and comments, so only elements and text are left.
   if (nodes.length > 1 || node.type !== "element") return element(properties, nodes as ElementContent[]);
@@ -142,17 +123,6 @@ function markBlock({ start, end, rich }: PlannedBlock, nodes: RootContent[]): El
     return element({ ...properties, className: ["diagram"] }, [{ ...node, children: code.children }]);
   }
   return { ...node, properties: { ...node.properties, ...properties } };
-}
-
-/** Sanitize removes an unsafe URL, as `javascript:`, but keeps its link or image: toMarkdown would write `[text]()`. */
-function dropsUrl(nodes: RootContent[]): boolean {
-  let dropped = false;
-  visit({ type: "root", children: nodes }, "element", (node) => {
-    const { tagName, properties } = node;
-    dropped = (tagName === "a" && properties.href === undefined) || (tagName === "img" && properties.src === undefined);
-    if (dropped) return EXIT;
-  });
-  return dropped;
 }
 
 function element(properties: Element["properties"], children: ElementContent[]): Element {
@@ -186,6 +156,30 @@ function linkFootnotes(): Transformer<Root> {
         node.properties.href = "#user-content-" + href.slice(1);
       }
     });
+  };
+}
+
+const roundTrips = new Map<string, boolean>();
+
+/**
+ * A block is rich unless toMarkdown gives its source back, so that an edit in it changes only the typed text.
+ * The result is kept by the HTML and the source of the block: render runs on each keystroke, and the HTML of a block
+ * can change with text elsewhere, as a footnote reference without its definition renders as text.
+ */
+function markLossyBlocks(): Transformer<Root> {
+  return (tree, file) => {
+    if (roundTrips.size > 5000) roundTrips.clear();
+    for (const node of tree.children) {
+      if (!isBlock(node) || node.properties.dataRich !== undefined) continue;
+      const { dataStart, dataEnd, ...properties } = node.properties;
+      const source = String(file.value).slice(Number(dataStart), Number(dataEnd));
+      // Without its range, the HTML of a block stays the same when an edit above it moves it.
+      const html = toHtml.stringify({ type: "root", children: [{ ...node, properties }] });
+      const key = html + "\0" + source;
+      // A space at the end of a block is no content, as the space after `- [ ] ` that the task tool types: toMarkdown drops it.
+      if (!roundTrips.has(key)) roundTrips.set(key, toMarkdown(html, source) === source.trimEnd());
+      if (!roundTrips.get(key)) node.properties.dataRich = true;
+    }
   };
 }
 
@@ -226,4 +220,27 @@ function emptyTaskItems(): Transformer<MdastRoot> {
       item.children = [];
     });
   };
+}
+
+/**
+ * Gives the checkbox of each task item the source offset of its `[`, where a click toggles the task.
+ * The item finds its checkbox by its source position, which raw HTML cannot fake: a raw `<li>` starts at a `<`, a list item at its marker.
+ * The `[` is the first one after the marker, because only white space and quote markers stand between them.
+ */
+function markTaskBoxes(tree: Root, mdast: MdastRoot, source: string) {
+  const boxes = new Map<number, number>();
+  visit(mdast, "listItem", (item) => {
+    const start = item.position!.start.offset!;
+    if (item.checked != null) boxes.set(start, source.indexOf("[", start));
+  });
+  visit(tree, "element", (node) => {
+    const offset = node.tagName === "li" ? boxes.get(node.position?.start.offset ?? -1) : undefined;
+    if (offset === undefined) return;
+    // The checkbox is the first element of the item, or of its first paragraph.
+    visit(node, "element", (box) => {
+      if (box.tagName !== "input") return;
+      box.properties.dataTask = offset;
+      return EXIT;
+    });
+  });
 }

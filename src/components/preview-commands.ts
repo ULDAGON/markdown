@@ -5,7 +5,6 @@ import type { ToolId } from "@/lib/source-edits";
 const escape = (text: string) => text.replace(/[&<>"]/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot" }[c]};`);
 
 const exec = (command: string, arg?: string) => document.execCommand(command, false, arg);
-const selected = () => getSelection()?.toString() ?? "";
 
 /** The closest element at the selection that matches the selector. */
 export function closest(selector: string): Element | null {
@@ -17,34 +16,27 @@ export function closest(selector: string): Element | null {
 // A task item of a loose list holds its checkbox in its first paragraph.
 const boxOf = (item: Element | null) => item?.querySelector(":scope > input[type=checkbox], :scope > p:first-child > input[type=checkbox]");
 
-/** The text of the element before or after the caret. */
-function textBeside(element: Element, before: boolean): string {
+/** Whether the caret is at the start or the end of the text of the element. The whitespace between elements is no text. */
+function atEdge(element: Element, start: boolean): boolean {
   const { anchorNode, anchorOffset } = getSelection()!;
   const range = document.createRange();
   range.selectNodeContents(element);
-  if (before) range.setEnd(anchorNode!, anchorOffset);
+  if (start) range.setEnd(anchorNode!, anchorOffset);
   else range.setStart(anchorNode!, anchorOffset);
-  return range.toString();
+  const walker = document.createTreeWalker(range.cloneContents(), NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) if (node.textContent!.trim()) return false;
+  return true;
 }
 
-const COMMANDS = ["bold", "italic", "strike", "link"] as const;
-export type CommandTool = (typeof COMMANDS)[number];
-
-/** These tools run as rich-text commands; the other tools edit the source (Preview). */
-export const isCommand = (id: ToolId): id is CommandTool => (COMMANDS as readonly ToolId[]).includes(id);
-
-/** Run a rich-text command. The link tool takes the URL; on an existing link it changes the URL of the whole link. */
-export function previewEdit(id: CommandTool, url = "") {
-  switch (id) {
-    case "bold": return exec("bold");
-    case "italic": return exec("italic");
-    case "strike": return exec("strikeThrough");
-    case "link": {
-      const link = closest("a");
-      if (link) getSelection()!.selectAllChildren(link);
-      return selected() ? exec("createLink", url) : exec("insertHTML", `<a href="${escape(url)}">${escape(url)}</a>`);
-    }
-  }
+/**
+ * Link the selection to the URL, or insert the URL as a link at a caret. On an existing link it changes only the URL,
+ * so the title stays.
+ */
+export function link(url: string) {
+  const existing = closest("a");
+  if (existing) existing.setAttribute("href", url);
+  else if (getSelection()!.toString()) exec("createLink", url);
+  else exec("insertHTML", `<a href="${escape(url)}">${escape(url)}</a>`);
 }
 
 /**
@@ -58,7 +50,7 @@ export function enter(): boolean {
   const box = boxOf(item);
   const quoted = closest("blockquote > p");
   // The browser pushes an empty heading above; the empty block above is a paragraph.
-  if (heading?.textContent!.trim() && !textBeside(heading, true)) {
+  if (heading?.textContent!.trim() && atEdge(heading, true)) {
     heading.before(Object.assign(document.createElement("p"), { innerHTML: "<br>" }));
     return true;
   }
@@ -67,17 +59,27 @@ export function enter(): boolean {
     box.remove();
     return false;
   }
-  // The browser makes the next item of a task item without a box.
+  // The browser makes the next item of a task item without a box. On an empty new item it keeps the typing style
+  // of the end of the item, as an empty <strong>; the box would go into it and stop being the box of the item.
   if (box) {
     exec("insertParagraph");
-    exec("insertHTML", '<input type="checkbox">');
+    const line = closest("p, li")!;
+    const next = Object.assign(document.createElement("input"), { type: "checkbox" });
+    if (line.textContent) {
+      line.prepend(next);
+    } else {
+      line.replaceChildren(next, document.createElement("br"));
+      getSelection()!.collapse(line, 1);
+    }
     return true;
   }
   // An empty line ends a quote, as an empty item ends a list; what follows it in the quote stays a quote.
   if (quoted && !quoted.textContent!.trim()) {
+    const quote = quoted.parentElement!;
     const rest = document.createElement("blockquote");
     while (quoted.nextSibling) rest.append(quoted.nextSibling);
-    quoted.parentElement!.after(quoted, ...(rest.childElementCount ? [rest] : []));
+    quote.after(quoted, ...(rest.childElementCount ? [rest] : []));
+    if (!quote.childElementCount) quote.remove(); // the empty line was its first line
     getSelection()!.collapse(quoted, 0);
     return true;
   }
@@ -90,7 +92,7 @@ export function enter(): boolean {
  */
 export function besideLocked(block: Element, back: boolean): boolean {
   const locked = (el: Element | null) => !!el?.matches('[contenteditable="false"], table');
-  return (locked(block) || locked(back ? block.previousElementSibling : block.nextElementSibling)) && !textBeside(block, back);
+  return (locked(block) || locked(back ? block.previousElementSibling : block.nextElementSibling)) && atEdge(block, back);
 }
 
 /** The pressed tools and the heading level at the selection. The innermost list item gives the list tool. */

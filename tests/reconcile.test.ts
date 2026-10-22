@@ -20,7 +20,7 @@ function check(result: { text: string; ranges: BlockRange[] }, text: string, par
 }
 
 const clean = (range: BlockRange): Child => ({ range });
-const added = (markdown: string): Child => ({ markdown });
+const added = (markdown: string, from?: BlockRange): Child => ({ markdown, from });
 
 test("no change keeps the text identical", () => {
   const source = "# Title\n\n\nPara one.\n\n[x]: http://x\n\n<!-- c -->\n\n- a\n- b\n";
@@ -44,14 +44,14 @@ test("an edit in the middle keeps the odd text around it byte for byte", () => {
 test("Enter splits a block into two elements with the same range", () => {
   const source = "A\n\nBC\n\nD\n";
   const [a, bc, d] = rangesOf(source, ["A", "BC", "D"]);
-  const result = reconcile(source, [a, bc, d], [clean(a), added("B"), added("C"), clean(d)]);
+  const result = reconcile(source, [a, bc, d], [clean(a), added("B", bc), added("C", bc), clean(d)]);
   check(result, "A\n\nB\n\nC\n\nD\n", ["A", "B", "C", "D"]);
 });
 
 test("Backspace merges two blocks into one", () => {
   const source = "A\n\nB\n\nC\n\nD\n";
   const [a, b, c, d] = rangesOf(source, ["A", "B", "C", "D"]);
-  const result = reconcile(source, [a, b, c, d], [clean(a), added("BC"), clean(d)]);
+  const result = reconcile(source, [a, b, c, d], [clean(a), added("BC", b), clean(d)]);
   check(result, "A\n\nBC\n\nD\n", ["A", "BC", "D"]);
 });
 
@@ -98,7 +98,7 @@ test("a delete of all blocks keeps the text that renders to no block", () => {
 test("a change of the first and of the last block", () => {
   const source = "A\n\nB\n\nC\n";
   const [a, b, c] = rangesOf(source, ["A", "B", "C"]);
-  const result = reconcile(source, [a, b, c], [added("A2"), clean(b), added("C2")]);
+  const result = reconcile(source, [a, b, c], [added("A2", a), clean(b), added("C2", c)]);
   check(result, "A2\n\nB\n\nC2\n", ["A2", "B", "C2"]);
 });
 
@@ -116,18 +116,33 @@ test("the final newline stays present", () => {
   check(reconcile(source, [a, b], [clean(a)]), "A\n", ["A"]);
 });
 
-test("a definition between two replaced blocks goes after the new blocks", () => {
+test("a definition between two merged blocks goes after the merged block", () => {
   const source = "A\n\nB\n\n[^1]: note\n\nC\n\nD";
   const [a, b, c, d] = rangesOf(source, ["A", "B", "C", "D"]);
-  const result = reconcile(source, [a, b, c, d], [clean(a), added("BC"), clean(d)]);
+  const result = reconcile(source, [a, b, c, d], [clean(a), added("BC", b), clean(d)]);
   check(result, "A\n\nBC\n\n[^1]: note\n\nD", ["A", "BC", "D"]);
 });
 
 test("a comment between two edited blocks stays between them", () => {
   const source = "one\n\n<!-- keep   this -->\n\ntwo";
   const [one, two] = rangesOf(source, ["one", "two"]);
-  const result = reconcile(source, [one, two], [added("one1"), added("two2")]);
+  const result = reconcile(source, [one, two], [added("one1", one), added("two2", two)]);
   check(result, "one1\n\n<!-- keep   this -->\n\ntwo2", ["one1", "two2"]);
+});
+
+test("an edited block goes where the block that it came from was", () => {
+  // The first block was emptied, the second one split.
+  const source = "aaa\n\n<!-- c -->\n\nbbb ccc\n\nend";
+  const [aaa, bbbccc, end] = rangesOf(source, ["aaa", "bbb ccc", "end"]);
+  const result = reconcile(source, [aaa, bbbccc, end], [added("bbb", bbbccc), added("ccc", bbbccc), clean(end)]);
+  check(result, "<!-- c -->\n\nbbb\n\nccc\n\nend", ["bbb", "ccc", "end"]);
+});
+
+test("a block from nowhere or from before the block in front of it goes after that block", () => {
+  const source = "A\n\n<!-- c -->\n\nB";
+  const [a, b] = rangesOf(source, ["A", "B"]);
+  check(reconcile(source, [a, b], [added("A2", a), added("X"), added("B2", b)]), "A2\n\nX\n\n<!-- c -->\n\nB2", ["A2", "X", "B2"]);
+  check(reconcile(source, [a, b], [added("B2", b), added("A2", a)]), "<!-- c -->\n\nB2\n\nA2", ["B2", "A2"]);
 });
 
 test("a single newline at a hunk edge becomes a blank line", () => {

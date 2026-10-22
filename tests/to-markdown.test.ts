@@ -78,7 +78,7 @@ test("an edit in a table writes only the changed row, in the style of the origin
 test("a list keeps its spread: tight with a nested list of two items, loose with a blank line", () => {
   const nested = "- [ ] a\n  - [ ] b\n  - [x] c\n- [ ] d";
   const [list] = topLevelHtml(render(nested).html);
-  const toggled = list.replace('<input type="checkbox" disabled>b', '<input type="checkbox" checked disabled>b');
+  const toggled = list.replace('<input type="checkbox" disabled data-task="12">b', '<input type="checkbox" checked disabled>b');
   assert.equal(toMarkdown(toggled, nested), "- [ ] a\n  - [x] b\n  - [x] c\n- [ ] d");
   assert.equal(roundTrip("- a\n\n  - b\n  - c\n\n- d"), "- a\n\n  - b\n  - c\n\n- d");
 });
@@ -96,6 +96,12 @@ test("a ! before a footnote reference is not escaped, before a link text it is",
 test("the checked attribute is the state of a task", () => {
   const html = '<ul class="contains-task-list"><li class="task-list-item"><input type="checkbox" checked disabled> task</li></ul>';
   assert.equal(toMarkdown(html, "- [ ] task"), "- [x] task");
+});
+
+test("an empty task item keeps its box", () => {
+  for (const markdown of ["- [ ]", "- [x]", "1. [ ]", "> - [ ]", "- a\n  - [ ]", "- [ ]\n- [ ] b"]) assert.equal(roundTrip(markdown), markdown);
+  // The preview gives an empty item a <br> for the caret.
+  assert.equal(toMarkdown('<ul><li class="task-list-item"><input type="checkbox" checked><br></li></ul>', ""), "- [x]");
 });
 
 test("TeX that KaTeX cannot parse keeps its delimiters", () => {
@@ -121,4 +127,10 @@ test("the markers of the original block stay", () => {
 test("without an original block the defaults apply", () => {
   const html = "<ul><li><em>x</em> <strong>y</strong></li></ul><hr><pre><code>z\n</code></pre>";
   assert.equal(toMarkdown(html, ""), "- *x* **y**\n\n---\n\n```\nz\n```");
+});
+
+test("a block with a bare URL keeps its style and gives its source back", () => {
+  const source = "see https://example.com/a_b_c?x=1&y=2 and *it*";
+  const html = '<p>see <a href="https://example.com/a_b_c?x=1&amp;y=2">https://example.com/a_b_c?x=1&amp;y=2</a> and <em>it</em></p>';
+  assert.doesNotThrow(() => toMarkdown(html, source));
 });

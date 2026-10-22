@@ -1,6 +1,7 @@
 import type { BlockRange } from "./render.ts";
 
-export type Child = { range: BlockRange } | { markdown: string };
+/** A clean child keeps its range of the source; an edited child has new markdown and the range that it came from, if any. */
+export type Child = { range: BlockRange } | { markdown: string; from?: BlockRange };
 
 const BLANK_LINE = "\n\n";
 
@@ -18,7 +19,7 @@ export function reconcile(
   const ranges: BlockRange[] = [];
   let hunkStart = 0;
   let afterKeptBlock = false;
-  let edited: string[] = [];
+  let edited: { markdown: string; from?: BlockRange }[] = [];
 
   const writeHunk = (hunkEnd: number, beforeKeptBlock: boolean) => {
     const replaced = rendered.filter((r) => r.start >= hunkStart && r.end <= hunkEnd);
@@ -28,19 +29,23 @@ export function reconcile(
     }
     const before = replaced.length ? source.slice(hunkStart, replaced[0].start) : "";
     const after = source.slice(replaced.length ? replaced[replaced.length - 1].end : hunkStart, hunkEnd);
-    const leftovers = replaced.slice(1).map((r, i) => source.slice(replaced[i].end, r.start).trim());
+    const gaps = replaced.slice(1).map((r, i) => source.slice(replaced[i].end, r.start).trim());
     // The gaps at the hunk edges stay as they are; they only get a blank line when they have
     // none, because a single newline can join the new text with its neighbour into one paragraph.
     const left = afterKeptBlock || before.trim() ? endWithBlankLine(before) : before;
     const right = beforeKeptBlock || after.trim() ? startWithBlankLine(after) : after;
 
-    // With one new block for each replaced block, the text between two of them stays between them;
-    // otherwise the blocks were split or merged, and it goes after the new blocks.
-    const added = edited.map((markdown) => ({ markdown, isNew: true }));
-    const kept = leftovers.map((markdown) => ({ markdown, isNew: false }));
-    const pieces = (
-      edited.length === replaced.length ? added.flatMap((piece, i) => (i < kept.length ? [piece, kept[i]] : [piece])) : [...added, ...kept]
-    ).filter(({ markdown }) => markdown !== "");
+    // An edited block goes where the block that it came from was, so the text between the replaced blocks stays
+    // between them. A block that came from nowhere, or from a place before the block in front of it, goes after that block.
+    const placed: { markdown: string; isNew: boolean }[] = [];
+    let gap = 0; // the first gap that is not placed
+    for (const { markdown, from } of edited) {
+      const at = replaced.findIndex((r) => r.start === from?.start && r.end === from.end);
+      for (; gap < at; gap++) placed.push({ markdown: gaps[gap], isNew: false });
+      placed.push({ markdown, isNew: true });
+    }
+    for (; gap < gaps.length; gap++) placed.push({ markdown: gaps[gap], isNew: false });
+    const pieces = placed.filter(({ markdown }) => markdown !== "");
     if (pieces.length === 0) {
       const merged = left.trimEnd() + right;
       text += afterKeptBlock ? merged : merged.trimStart();
@@ -59,7 +64,7 @@ export function reconcile(
     if ("markdown" in child) {
       // Only the leading blank lines go: the indent of the first line can make an indented code block.
       const markdown = child.markdown.replace(/^\s*\n/, "").trimEnd();
-      if (markdown) edited.push(markdown);
+      if (markdown) edited.push({ markdown, from: child.from });
       continue;
     }
     const kept = child.range;

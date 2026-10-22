@@ -1,5 +1,7 @@
 // Edits on the markdown source as pure text operations. The caller applies an Edit to the textarea.
 
+import { inlines, tableRanges, type Span } from "./inline-spans.ts";
+
 export type ToolId =
   | "bold" | "italic" | "strike" | "code"
   | "heading"
@@ -10,16 +12,13 @@ export type ToolId =
 export type Edit = { start: number; end: number; text: string; select: [number, number] };
 
 type Mark = "bold" | "italic" | "strike" | "code";
-/** A mark writes its marker; it reads a run of one of its characters whose length holds. */
-const MARK: Record<Mark, { marker: string; chars: string; holds: (run: number) => boolean }> = {
-  bold: { marker: "**", chars: "*", holds: (run) => run >= 2 },
-  // `***x***` is bold and italic, so an odd run is italic and the `**` of bold is not. An intraword `_` is no emphasis.
-  italic: { marker: "*", chars: "*_", holds: (run) => run % 2 === 1 },
-  strike: { marker: "~~", chars: "~", holds: (run) => run >= 2 },
-  code: { marker: "`", chars: "`", holds: (run) => run >= 1 },
+/** The markdown node of a mark, and the marker it writes. */
+const MARK: Record<Mark, { type: string; marker: string }> = {
+  bold: { type: "strong", marker: "**" },
+  italic: { type: "emphasis", marker: "*" },
+  strike: { type: "delete", marker: "~~" },
+  code: { type: "inlineCode", marker: "`" },
 };
-// The syntax at the start of a line that a mark stays out of: indent, quote, heading, list marker, task box.
-const SYNTAX = /^(?:\s*(?:> ?|#{1,6} |(?:[-*+]|\d+[.)]) (?:\[[ xX]\] )?))*\s*/;
 const TABLE = "| column | column |\n| --- | --- |\n| cell | cell |";
 
 const edit = (start: number, end: number, text: string, from = text.length, to = from): Edit => ({
@@ -37,54 +36,98 @@ function lineEnd(value: string, index: number) {
   return newline === -1 ? value.length : newline;
 }
 
+/** The syntax at the start of a line: quote markers, indent, then the list marker and the task box of an item. */
+function syntax(line: string) {
+  const [head, quote, indent, marker = "", box = ""] = line.match(/^((?:[ \t]*>[ \t]?)*)([ \t]*)(?:((?:[-*+]|\d+[.)])[ \t])(\[[ xX]\](?:[ \t]|$))?)?/)!;
+  return { quote, indent, marker, box, rest: line.slice(head.length) };
+}
+const syntaxAt = (value: string, index: number) => syntax(value.slice(lineStart(value, index), lineEnd(value, index)));
+
 /** A replacement of start..end; the selection leaves out the markers it adds at both ends of text. */
 type Part = { start: number; end: number; text: string; added: number };
 
 function mark(id: Mark, value: string, s: number, e: number): Edit {
-  const { marker, chars, holds } = MARK[id];
-  const m = marker.length;
+  const { type, marker } = MARK[id];
+  const blocks = inlines(value);
+  const own = (spans: Span[]) => spans.filter((span) => span.type === type);
 
-  // The part that removes the markers of the span that a..b is in, or null. The markers at the ends of a..b count too.
-  function unmark(a: number, b: number): Part | null {
-    const start = lineStart(value, a);
-    const line = value.slice(start, lineEnd(value, a));
-    const from = line.match(SYNTAX)![0].length;
-    for (const c of chars) {
-      let [x, y] = [a - start, b - start];
-      while (x < y && line[x] === c) x++;
-      while (y > x && line[y - 1] === c) y--;
-      const runs = [...line.slice(from).matchAll(new RegExp(`\\${c}+`, "g"))]
-        .filter((run) => holds(run[0].length))
-        .map((run) => [from + run.index, from + run.index + run[0].length]);
-      const before = runs.filter(([, end]) => end <= x);
-      const after = runs.filter(([begin]) => begin >= y);
-      // An odd count of markers before it and none inside it: a..b is inside one span.
-      if (before.length % 2 && after.length && before.length + after.length === runs.length) {
-        const [open, close] = [start + before.at(-1)![1] - m, start + after[0][0] + m];
-        const text = value.slice(open + m, close - m);
-        return { start: open, end: close, text, added: 0 };
-      }
+  // The width of the markers at each end of a span. `~` and `~~` both strike; a code span opens with any run of
+  // backticks, and a space on both sides of its text is part of its syntax.
+  function width({ type, start, end }: Span) {
+    if (type === "strong") return 2;
+    if (type === "emphasis") return 1;
+    let w = 0;
+    while (value[start + w] === value[start]) w++;
+    return type === "inlineCode" && /^ [^]*[^ ][^]* $/.test(value.slice(start + w, end - w)) ? w + 1 : w;
+  }
+  // The source of a..b without the markers of spans.
+  function strip(a: number, b: number, spans: Span[]) {
+    const cuts = spans.flatMap((span) => [[span.start, span.start + width(span)], [span.end - width(span), span.end]]);
+    let [text, at] = ["", a];
+    for (const [from, to] of cuts.sort((x, y) => x[0] - y[0])) [text, at] = [text + value.slice(at, from), to];
+    return text + value.slice(at, b);
+  }
+
+  // The part of each paragraph, heading or table cell that the selection covers, without the spaces and quote markers
+  // at its ends. A caret is in the block it touches; outside all blocks it is after the line syntax. A selection
+  // without such text, as of spaces or in a code block, has nothing to mark.
+  function outside(i: number) {
+    const { quote, indent } = syntaxAt(value, i);
+    return /\s/.test(value[i]) || i - lineStart(value, i) < quote.length + indent.length;
+  }
+  const ranges = blocks.flatMap(({ start, end, spans }) => {
+    if (s === e) return start <= s && s <= end ? [{ spans, a: s, b: s }] : [];
+    let [a, b] = [Math.max(s, start), Math.min(e, end)];
+    while (a < b && outside(a)) a++;
+    while (b > a && outside(b - 1)) b--;
+    return a < b ? [{ spans, a, b }] : [];
+  });
+  if (!ranges.length) {
+    if (s < e) return edit(s, e, value.slice(s, e), 0, e - s);
+    const { rest } = syntaxAt(value, s);
+    const at = Math.max(s, lineEnd(value, s) - rest.length);
+    ranges.push({ spans: [], a: at, b: at });
+  }
+
+  // A span of the mark that holds a selection, or holds a caret inside it, decides that the mark is on.
+  const holds = (span: Span, a: number, b: number) => (a === b ? span.start < a && b < span.end : span.start <= a && b <= span.end);
+  const holders = ranges.map(({ spans, a, b }) => own(spans).findLast((span) => holds(span, a, b)));
+  const on = holders.some((holder) => !holder);
+  // Italic writes the emphasis of its block, else of the document. An underscore inside a word, or next to another
+  // underscore, is no emphasis.
+  function underscore(spans: Span[], a: number, b: number) {
+    const emphasis = (spans: Span[]) => spans.filter((span) => span.type === "emphasis");
+    const style = emphasis(spans).length ? emphasis(spans) : blocks.flatMap((block) => emphasis(block.spans));
+    return style.some((span) => value[span.start] === "_") && !/[\p{L}\p{N}_]/u.test(value.slice(a - 1, a) + value.slice(b, b + 1));
+  }
+
+  function wrap(spans: Span[], a: number, b: number): Part {
+    // A mark cannot start or end in the syntax of another span, nor inside code or math: the part grows to whole spans.
+    const cuts = ({ start, end, content }: Span) => {
+      if (a <= start && end <= b) return false;
+      if (!content) return start < b && a < end;
+      const inside = (p: number) => start < p && p < end;
+      const syntax = (p: number) => inside(p) && (p < content[0] || p > content[1]);
+      return inside(a) !== inside(b) || syntax(a) || syntax(b);
+    };
+    for (let span = spans.find(cuts); span; span = spans.find(cuts)) [a, b] = [Math.min(a, span.start), Math.max(b, span.end)];
+    const text = strip(a, b, own(spans).filter((span) => a <= span.start && span.end <= b)) || id;
+    let [open, close] = [marker, marker];
+    if (id === "code") {
+      // A code span needs a longer run of backticks than it holds, and a space next to a backtick at an end.
+      const fence = "`".repeat(Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length)) + 1);
+      const pad = /^`|`$/.test(text) ? " " : "";
+      [open, close] = [fence + pad, pad + fence];
+    } else if (id === "italic" && underscore(spans, a, b)) {
+      [open, close] = ["_", "_"];
     }
-    return null;
+    return { start: a, end: b, text: open + text + close, added: open.length };
   }
 
-  // Each line of the selection is marked on its own, after its line syntax and without the spaces at its ends.
-  const ranges: [number, number][] = [];
-  for (let at = lineStart(value, s); at <= e; at = lineEnd(value, at) + 1) {
-    const line = value.slice(at, lineEnd(value, at));
-    const [a, b] = [Math.max(s, at + line.match(SYNTAX)![0].length), Math.min(e, at + line.length)];
-    const text = value.slice(a, b);
-    if (text.trim()) ranges.push([a + text.length - text.trimStart().length, b - text.length + text.trimEnd().length]);
-  }
-  if (!ranges.length) ranges.push([s, s]);
-
-  const spans = ranges.map(([a, b]) => unmark(a, b));
-  const on = spans.some((span) => !span);
-  const parts = ranges.map(([a, b], i): Part => {
-    const text = value.slice(a, b) || id;
-    if (!on) return spans[i]!;
-    if (spans[i]) return { start: a, end: b, text, added: 0 };
-    return { start: a, end: b, text: marker + text + marker, added: m };
+  const parts = ranges.map(({ spans, a, b }, i): Part => {
+    const holder = holders[i];
+    if (!on) return { start: holder!.start, end: holder!.end, text: strip(holder!.start, holder!.end, [holder!]), added: 0 };
+    return holder ? { start: a, end: b, text: value.slice(a, b), added: 0 } : wrap(spans, a, b);
   });
   let text = "";
   for (const [i, part] of parts.entries()) text += value.slice(i ? parts[i - 1].end : part.start, part.start) + part.text;
@@ -93,20 +136,37 @@ function mark(id: Mark, value: string, s: number, e: number): Edit {
 }
 
 // Apply fn to every line the selection touches, and select them. around holds the line before and the line after them.
+// The rows of a table stay as they are: a quote or a list marker in front of a row would break the table.
 function lines(value: string, s: number, e: number, fn: (lines: string[], around: string[]) => string[]): Edit {
   const start = lineStart(value, s);
   // A selection that ends right after a line break does not touch the next line.
   const end = lineEnd(value, e > s && value[e - 1] === "\n" ? e - 1 : e);
   const around = [start ? value.slice(lineStart(value, start - 1), start - 1) : "", value.slice(end + 1, lineEnd(value, end + 1))];
-  const text = fn(value.slice(start, end).split("\n"), around).join("\n");
+  const rows = value.slice(start, end).split("\n");
+  const tables = tableRanges(value);
+  let at = start;
+  const inTable = rows.map((row) => {
+    const inside = tables.some(([a, b]) => a <= at && at < b);
+    at += row.length + 1;
+    return inside;
+  });
+  const text = fn(rows, around).map((row, n) => (inTable[n] ? rows[n] : row)).join("\n");
   return edit(start, end, text, s === e ? text.length : 0, text.length);
 }
 
 // An empty list item or heading renders its marker as text, so they leave out the blank lines between selected lines.
 const blank = (line: string, lines: string[]) => !line.trim() && lines.some((other) => other.trim());
 
+// The heading goes after the quote and list syntax of its line: `- ## a` is a heading in a list item.
 function heading(level: number, value: string, s: number, e: number): Edit {
-  return lines(value, s, e, (ls) => ls.map((l) => (blank(l, ls) ? l : (level ? "#".repeat(level) + " " : "") + l.replace(/^#{1,6} /, ""))));
+  return lines(value, s, e, (ls) =>
+    ls.map((l) => {
+      const { quote, indent, marker, box, rest } = syntax(l);
+      // GFM reads `- [ ] ## a` as the text `## a`: a task item holds no heading.
+      if (blank(l, ls) || box) return l;
+      return quote + indent + marker + box + (level ? "#".repeat(level) + " " : "") + rest.replace(/^#{1,6} /, "");
+    }),
+  );
 }
 
 function quote(value: string, s: number, e: number): Edit {
@@ -114,46 +174,82 @@ function quote(value: string, s: number, e: number): Edit {
 }
 
 type List = "ul" | "ol" | "task";
-/** A line as a list item: marker and box are empty when the line has none. */
-function item(line: string) {
-  const [head, indent, marker = "", box = ""] = line.match(/^(\s*)(?:([-*+] |\d+[.)] )(\[[ xX]\] )?)?/)!;
-  return { indent, marker, box, rest: line.slice(head.length) };
-}
 const numbered = (marker: string) => /^\d/.test(marker);
-const IS: Record<List, (i: ReturnType<typeof item>) => boolean> = {
+const IS: Record<List, (i: ReturnType<typeof syntax>) => boolean> = {
   ul: (i) => !!i.marker && !numbered(i.marker) && !i.box,
   ol: (i) => numbered(i.marker) && !i.box,
   task: (i) => !!i.box,
 };
+// The column of an indent: a tab goes to the next multiple of 4.
+const columns = (indent: string) => [...indent].reduce((column, c) => (c === "\t" ? column + 4 - (column % 4) : column + 1), 0);
 
 function list(kind: List, value: string, s: number, e: number): Edit {
-  return lines(value, s, e, (ls, around) => {
-    const items = ls.map(item);
-    if (items.every((i, n) => blank(ls[n], ls) || IS[kind](i))) {
-      // A numbered item or a task inside a list stays an item: as a plain line it would join the item before it.
-      const inList = around.some((l) => item(l).marker);
-      return items.map(({ indent, marker, rest }, n) => {
-        if (blank(ls[n], ls)) return ls[n];
-        if (kind === "task" && (inList || numbered(marker))) return indent + marker + rest;
-        return indent + (kind === "ol" && inList ? "- " : "") + rest;
+  let plain = false; // an item became a line of text
+  const result = lines(value, s, e, (ls, around) => {
+    const items = ls.map(syntax);
+    const texts = items.map((i) => i.marker + i.rest);
+    if (items.every((i, n) => blank(texts[n], texts) || IS[kind](i))) {
+      // Off takes off what on puts on: the marker, or the box of a task. A task outside a list was a line of text,
+      // so its bullet goes too; a task inside a list, or with a number, was an item.
+      const inList = around.some((l) => syntax(l).marker);
+      plain = kind !== "task" || !(inList || items.some((i) => numbered(i.marker)));
+      return items.map(({ quote, indent, marker, rest }, n) => {
+        if (blank(texts[n], texts)) return ls[n];
+        return quote + indent + (kind === "task" && (inList || numbered(marker)) ? marker : "") + rest;
       });
     }
     // A child item starts at the text of its parent, so it moves with the width of the new parent marker.
     const parents: { text: number; moved: number }[] = [];
-    const count: number[] = []; // the number of the item on each level
-    return items.map(({ indent, marker, rest }, n) => {
-      if (blank(ls[n], ls)) return ls[n];
-      while (parents.length && indent.length < parents.at(-1)!.text) parents.pop();
+    const count: number[] = [numberAbove(value, s)]; // the number of the item on each level
+    return items.map(({ quote, indent, marker, box, rest }, n) => {
+      if (blank(texts[n], texts)) return ls[n];
+      const column = columns(indent);
+      while (parents.length && column < parents.at(-1)!.text) parents.pop();
       const parent = parents.at(-1);
-      const at = parent ? parent.moved + indent.length - parent.text : indent.length;
+      const at = parent ? parent.moved + column - parent.text : column;
       count.length = parents.length + 1;
       count[parents.length] = (count[parents.length] ?? 0) + 1;
-      // A task on a numbered item keeps its number.
-      const next = kind === "ol" ? `${count[parents.length]}. ` : kind === "task" && numbered(marker) ? marker : "- ";
-      if (marker) parents.push({ text: indent.length + marker.length, moved: at + next.length });
-      return " ".repeat(at) + next + (kind === "task" ? "[ ] " : "") + rest;
+      // A bullet keeps its character, and a task keeps the marker of the item it is made from.
+      const next = kind === "ol" ? `${count[parents.length]}. ` : marker && (kind === "task" || !numbered(marker)) ? marker : "- ";
+      if (marker) parents.push({ text: column + marker.length, moved: at + next.length });
+      return quote + (at === column ? indent : " ".repeat(at)) + next + (kind === "task" ? box || "[ ] " : "") + rest;
     });
   });
+  if (result.text === value.slice(result.start, result.end)) return result; // nothing changed, as on a table row
+  return plain ? separate(value, result) : join(value, result);
+}
+
+const isItem = (line: string | null) => line !== null && !!syntax(line).marker;
+
+// The number of the numbered item above the line of s at the same indent, also across one blank line; else 0.
+function numberAbove(value: string, s: number): number {
+  const start = lineStart(value, s);
+  let above = lineBefore(value, start);
+  if (isBlank(above) && start) above = lineBefore(value, lineStart(value, start - 1));
+  if (above === null) return 0;
+  const item = syntax(above);
+  const same = columns(item.indent) === columns(syntax(value.slice(start, lineEnd(value, start))).indent);
+  return same ? Number(item.marker.match(/^\d+/)?.[0] ?? 0) : 0;
+}
+// A blank line, also `>` in a quote.
+const isBlank = (line: string | null) => line !== null && !syntax(line).marker && !syntax(line).rest.trim();
+const lineBefore = (value: string, start: number) => (start ? value.slice(lineStart(value, start - 1), start - 1) : null);
+const lineAfter = (value: string, end: number) => (end < value.length ? value.slice(end + 1, lineEnd(value, end + 1)) : null);
+
+// A line of text right after a list item continues that item, so an item that becomes text gets a blank line
+// between it and the list items around it; an item that joins a list again takes those blank lines away.
+function separate(value: string, { start, end, text, select }: Edit): Edit {
+  const gap = syntax(value.slice(start, lineEnd(value, start))).quote.trimEnd();
+  const before = isItem(lineBefore(value, start)) ? gap + "\n" : "";
+  const after = isItem(lineAfter(value, end)) ? "\n" + gap : "";
+  return { start, end, text: before + text + after, select: [select[0] + before.length, select[1] + before.length] };
+}
+
+function join(value: string, edit: Edit): Edit {
+  let { start, end } = edit;
+  if (isBlank(lineBefore(value, start)) && isItem(lineBefore(value, lineStart(value, start - 1)))) start = lineStart(value, start - 1);
+  if (isBlank(lineAfter(value, end)) && isItem(lineAfter(value, lineEnd(value, end + 1)))) end = lineEnd(value, end + 1);
+  return { ...edit, start, end };
 }
 
 // A block on lines of its own, with a blank line around it where markdown needs one.
@@ -200,30 +296,32 @@ export function selectionAfter(id: ToolId, value: string, edit: Edit, s: number,
   if (!LINE_TOOLS.has(id)) return [edit.start + edit.select[0], edit.start + edit.select[1]];
   const before = value.slice(edit.start, edit.end).split("\n");
   const after = edit.text.split("\n");
+  // A list tool can add or take away a blank line in front of the lines (separate, join): the rows move with it.
+  const leading = (rows: string[]) => Math.max(0, rows.findIndex((row) => !isBlank(row)));
+  const shift = leading(after) - leading(before);
   const follow = (offset: number) => {
     const head = value.slice(edit.start, offset).split("\n");
     const row = head.length - 1;
-    const [from, to] = [before[row], after[row]];
+    const [from, to] = [before[row], after[row + shift]];
     let kept = 0; // the end of the line that the edit keeps
     while (kept < Math.min(from.length, to.length) && from.at(-1 - kept) === to.at(-1 - kept)) kept++;
-    return edit.start + after.slice(0, row + 1).join("\n").length - Math.min(from.length - head[row].length, kept);
+    return edit.start + after.slice(0, row + shift + 1).join("\n").length - Math.min(from.length - head[row].length, kept);
   };
   return [follow(s), follow(e)];
 }
 
-/** Enter inside a list starts the next item; Enter on an empty item ends the list. Null: not in a list. */
+/** Enter inside a list or a quote starts the next item; Enter on an empty item ends it. Null: in neither. */
 export function continueList(value: string, caret: number): Edit | null {
   const start = lineStart(value, caret);
-  const line = value.slice(start, caret);
-  const m = line.match(/^(\s*)(> |[-*+] \[[ xX]\] |[-*+] |(\d+)([.)]) )/);
-  if (!m) return null;
-  // Only a line that is nothing but the marker ends the list; Enter after the marker of an item with text splits it.
-  if (lineEnd(value, caret) - start === m[0].length) return edit(start, caret, "", 0, 0);
-  const next = m[3] ? `${m[1]}${Number(m[3]) + 1}${m[4]} ` : m[1] + m[2].replace(/\[[xX]\]/, "[ ]");
+  const { quote, indent, marker, box, rest } = syntax(value.slice(start, caret));
+  if (!quote && !marker) return null;
+  // Only a line that is nothing but the syntax ends the list; Enter after the marker of an item with text splits it.
+  if (lineEnd(value, caret) === caret && !rest) return edit(start, caret, "", 0, 0);
+  const next = quote + indent + marker.replace(/\d+/, (number) => String(Number(number) + 1)) + box.replace(/[xX]/, " ");
   return edit(caret, caret, "\n" + next);
 }
 
 /** The level of the heading on the caret line, 0 for text. */
 export function headingLevel(value: string, caret: number): number {
-  return value.slice(lineStart(value, caret)).match(/^(#{1,6})\s/)?.[1].length ?? 0;
+  return syntaxAt(value, caret).rest.match(/^(#{1,6})\s/)?.[1].length ?? 0;
 }

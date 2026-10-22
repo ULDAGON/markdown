@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Element } from "hast";
 import { fromHtml } from "hast-util-from-html";
-import { hasClass, render } from "../src/lib/markdown/render.ts";
+import { render } from "../src/lib/markdown/render.ts";
+import { hasClass } from "../src/lib/markdown/to-markdown.ts";
 
 function topLevel(html: string): Element[] {
   return fromHtml(html, { fragment: true }).children.filter((node) => node.type === "element");
@@ -68,8 +69,14 @@ test("code, math, Mermaid and raw HTML are rich blocks", () => {
   assert.ok(find(math, (node) => hasClass(node, "katex-display")));
 });
 
-test("a block that toMarkdown cannot give back is rich", () => {
+test("a block is rich text only when toMarkdown gives its source back", () => {
   const lossy = [
+    "*a* and _b_ end",
+    "a  \nb end",
+    "a\\_b end",
+    "| a |\n| - |\n| 1 | 2 |\n| x |",
+    "- [ ]a\n- [ ] b",
+    "* [ ] \n* [ ] b",
     "H<sub>2</sub>O",
     "x <!-- keep --> y",
     "see [docs][d]",
@@ -83,12 +90,27 @@ test("a block that toMarkdown cannot give back is rich", () => {
     "![bad](javascript:alert(1))",
     "<javascript:alert(1)>",
   ];
-  const lossless = ["plain *text*", "[relative](/x), [empty]() and ![empty]()"];
-  const markdown = [...lossy, ...lossless, "[d]: https://x.y"].join("\n\n");
+  const lossless = [
+    "plain *text*",
+    "[relative](/x), [empty]() and ![empty]()",
+    "a note[^n]",
+    "| a | b |\n|--|--|\n| 1 | 2 |",
+    "- [ ]\n- [x] b",
+    // A space at the end of a block is no content: the task tool and the heading tool leave one.
+    "+ [ ] ",
+    "## ",
+  ];
+  const markdown = [...lossy, ...lossless, "[d]: https://x.y", "[^n]: The note."].join("\n\n");
   assert.deepEqual(blocksOf(markdown), [
     ...lossy.map((block): [string, boolean] => [block, true]),
     ...lossless.map((block): [string, boolean] => [block, false]),
   ]);
+});
+
+test("a block is rich when its HTML does not give its source back, also after the same block was editable", () => {
+  assert.deepEqual(blocksOf("a[^1]\n\n[^1]: n"), [["a[^1]", false]]);
+  // Without its definition the reference is the text `[^1]`, which toMarkdown escapes.
+  assert.deepEqual(blocksOf("a[^1]"), [["a[^1]", true]]);
 });
 
 test("raw HTML that encloses markdown is one rich block", () => {
@@ -160,11 +182,27 @@ test("inline math is not editable", () => {
 });
 
 test("the text of a task item starts right after its checkbox", () => {
-  assert.match(render("- [ ] tight").html, /<li class="task-list-item"><input type="checkbox" disabled>tight<\/li>/);
-  assert.match(render("- [x] loose\n\n- [ ] b").html, /<p><input type="checkbox" checked disabled>loose<\/p>/);
+  assert.match(render("- [ ] tight").html, /<li class="task-list-item"><input type="checkbox" disabled data-task="2">tight<\/li>/);
+  assert.match(render("- [x] loose\n\n- [ ] b").html, /<p><input type="checkbox" checked disabled data-task="2">loose<\/p>/);
 });
 
 test("a list item of only a checkbox is an empty task item; an escaped one is text", () => {
-  assert.match(render("- [ ] ").html, /<li class="task-list-item"><input type="checkbox" disabled><\/li>/);
+  assert.match(render("- [ ] ").html, /<li class="task-list-item"><input type="checkbox" disabled data-task="2"><\/li>/);
   assert.match(render("- \\[ ]").html, /<li>\[ \]<\/li>/);
+});
+
+test("the checkbox of each task item has the source offset of its [, a checkbox of raw HTML has none", () => {
+  const markdown = [
+    "- [ ] a\n  - [x] b",
+    "> 1. [ ] c",
+    "- > - [ ] d",
+    "-\n  [X] e",
+    "- [ ]",
+    "- [ ]f",
+    '<ul><li class="task-list-item"><input type="checkbox" data-task="0" disabled> raw</li></ul>',
+  ].join("\n\n");
+  const boxes = findAll(topLevel(render(markdown).html), (node) => node.tagName === "input");
+  const offsets = boxes.map((box) => box.properties.dataTask);
+  assert.deepEqual(offsets, ["2", "12", "24", "37", "48", "57", undefined]);
+  assert.deepEqual(offsets.slice(0, -1).map((offset) => markdown.slice(Number(offset), Number(offset) + 3)), ["[ ]", "[x]", "[ ]", "[ ]", "[X]", "[ ]"]);
 });

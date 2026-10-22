@@ -4,14 +4,13 @@ import { reconcile, type Child } from "@/lib/markdown/reconcile";
 import { render, type BlockRange } from "@/lib/markdown/render";
 import { toMarkdown } from "@/lib/markdown/to-markdown";
 import { selectionAfter, sourceEdit, type ToolId } from "@/lib/source-edits";
-import { besideLocked, closest, enter, isCommand, previewEdit, toolState } from "./preview-commands";
+import { besideLocked, closest, enter, link, toolState } from "./preview-commands";
 import { rangeOf, selectSource, toSource, topLevel } from "./preview-selection";
 import { editRaw } from "./raw-edit";
 import Toolbar, { ask, KEYMAP } from "./Toolbar";
 import { useMermaid } from "./useMermaid";
 
-// A list item marker with a task box, after the indent and the quote markers of its line.
-const TASK_MARKER = /^[ \t>]*(?:[-*+]|\d+[.)])[ \t]+\[([ xX])\]/gm;
+const MARKS = new Set<ToolId>(["bold", "italic", "strike", "code"]);
 
 type Props = { markdown: string; onChange: (markdown: string) => void; ref?: React.Ref<HTMLElement> };
 
@@ -40,9 +39,10 @@ export default function Preview({ markdown, onChange, ref }: Props) {
     const el = article.current!;
     const { html, blocks } = render(text);
     el.innerHTML = html;
-    // A checkbox is disabled in the rendered HTML; in the preview a click toggles it. Only the task items of
-    // a block with a source range can: a checkbox in raw HTML or in the footnotes would turn that into markdown.
-    el.querySelectorAll(":scope > [data-start]:not([data-rich]) :is(li.task-list-item, li.task-list-item > p) > input[type=checkbox]").forEach((box) => box.removeAttribute("disabled"));
+    // A checkbox is disabled in the rendered HTML; in the preview a click toggles the task at its source offset.
+    // Only a box in a block with a source range can: sync moves the offset with the block. The footnotes have no
+    // range. The toggle changes one character of the source, so it is safe in a raw-text block too.
+    el.querySelectorAll(":scope > [data-start] input[data-task]").forEach((box) => box.removeAttribute("disabled"));
     // The caret cannot go into an empty block, as the heading that a tool makes on an empty line; a <br> gives it a line.
     el.querySelectorAll(":scope > :is(h1, h2, h3, h4, h5, h6, blockquote), li").forEach((block) => {
       const empty = !block.textContent!.trim() && [...block.children].every((child) => child instanceof HTMLInputElement);
@@ -95,10 +95,11 @@ export default function Preview({ markdown, onChange, ref }: Props) {
         continue;
       }
       synced.push(el);
-      children.push({ markdown });
+      children.push({ markdown, from: range });
     }
     const { text, ranges } = reconcile(source, live.rendered, children);
     synced.forEach((el, i) => {
+      moveTasks(el, text, ranges[i]);
       el.dataset.start = String(ranges[i].start);
       el.dataset.end = String(ranges[i].end);
     });
@@ -106,10 +107,29 @@ export default function Preview({ markdown, onChange, ref }: Props) {
     if (text !== source) onChange(text);
   }
 
+  // The task boxes of a block keep the source offsets of their tasks: they move with the block to its new range. An
+  // edited block takes the offsets of a render of its new source, box for box, so a box that Enter made gets one too.
+  function moveTasks(el: HTMLElement, text: string, { start, end }: BlockRange) {
+    const boxes = el.querySelectorAll<HTMLElement>("input[type=checkbox]");
+    if (!boxes.length) return;
+    if (!live.changed.has(el)) {
+      const shift = start - rangeOf(el)!.start;
+      for (const box of boxes) if (box.dataset.task) box.dataset.task = String(Number(box.dataset.task) + shift);
+      return;
+    }
+    const fresh = document.createElement("template");
+    fresh.innerHTML = render(text.slice(start, end)).html;
+    const offsets = [...fresh.content.querySelectorAll("input[type=checkbox]")].map((box) => box.getAttribute("data-task"));
+    boxes.forEach((box, k) => {
+      if (offsets[k] == null) delete box.dataset.task;
+      else box.dataset.task = String(start + Number(offsets[k]));
+    });
+  }
+
   useEffect(() => {
     const el = article.current!;
     live.observer = new MutationObserver(mark);
-    live.observer.observe(el, { childList: true, characterData: true, subtree: true });
+    live.observer.observe(el, { childList: true, characterData: true, subtree: true, attributeFilter: ["href"] });
     const onSelection = () => {
       const selection = getSelection()!;
       if (selection.rangeCount && el.contains(selection.anchorNode)) {
@@ -144,8 +164,10 @@ export default function Preview({ markdown, onChange, ref }: Props) {
     const el = article.current!;
     if (document.activeElement === el) return true;
     if (!live.saved) return false; // the focus stays where it is, as in the markdown card
-    el.focus(); // blurs an open raw textarea, which renders again and drops the saved selection
-    if (!live.saved) return false;
+    const raw = el.querySelector("textarea");
+    el.focus();
+    // The focus left the open raw edit, whose commit rendered the article again: the saved selection is gone.
+    if (raw) return false;
     getSelection()!.removeAllRanges();
     getSelection()!.addRange(live.saved);
     return true;
@@ -161,15 +183,14 @@ export default function Preview({ markdown, onChange, ref }: Props) {
   }
 
   async function run(id: ToolId, arg?: number) {
-    if (!isCommand(id)) {
+    if (id !== "link") {
       if (restore()) editSource(id, arg);
       return;
     }
-    if (id === "link") {
-      const url = await ask(card.current!.querySelector(".toolbar")!, { placeholder: "https://", value: closest("a")?.getAttribute("href") ?? "" });
-      if (restore() && url) previewEdit("link", url);
-    } else if (restore()) {
-      previewEdit(id);
+    const url = await ask(card.current!.querySelector(".toolbar")!, { placeholder: "https://", value: closest("a")?.getAttribute("href") ?? "" });
+    if (restore() && url) {
+      link(url);
+      edited(); // the new URL of an existing link is an attribute, which fires no input event
     }
     wrapLooseText();
   }
@@ -179,8 +200,11 @@ export default function Preview({ markdown, onChange, ref }: Props) {
     sync();
     const el = article.current!;
     const source = live.source!;
-    // Inline code wraps the text itself; a block tool takes the syntax at the edges of a block with it.
-    const { text, start, end } = toSource(el, source, getSelection()!.getRangeAt(0), id !== "code");
+    const selection = getSelection()!.getRangeAt(0);
+    // A caret in a raw-text block has no text to map: the block is edited in its raw editor, not with the tools.
+    if (selection.collapsed && topLevel(el, selection.startContainer)?.isContentEditable === false) return;
+    // A mark wraps the text itself; a block tool takes the syntax at the edges of a block with it.
+    const { text, start, end } = toSource(el, source, selection, !MARKS.has(id));
     const edit = sourceEdit(id, text, start, end, arg);
     const next = text.slice(0, edit.start) + edit.text + text.slice(edit.end);
     show(next);
@@ -250,26 +274,22 @@ export default function Preview({ markdown, onChange, ref }: Props) {
     }
   }
 
-  // A native click on a checkbox in an editable region does not toggle it. The click toggles the task marker in
-  // the source instead of the box in the article: toMarkdown would drop the box of an empty item. The k-th box of
-  // a block stands for its k-th task marker, and the toggle keeps the length of the source, so the ranges stay.
+  // A native click on a checkbox in an editable region does not toggle it. The click toggles the task in the source
+  // instead, and the box in the article: the toggle keeps the length of the source, so the ranges stay.
   function onMouseDown(e: React.MouseEvent<HTMLElement>) {
-    const box = e.target as Element;
-    // A press on a rich block leaves an open raw edit to the click, which commits it before it opens the block.
-    if (box.closest("[data-rich]")) return e.preventDefault();
-    if (!(box instanceof HTMLInputElement) || box.type !== "checkbox") return;
-    const block = topLevel(article.current!, box);
-    if (!editable(block)) return;
-    e.preventDefault();
-    sync();
-    const source = live.source!;
-    const { start, end } = rangeOf(block)!;
-    const nth = [...block.querySelectorAll("input[type=checkbox]")].indexOf(box);
-    const marker = [...source.slice(start, end).matchAll(TASK_MARKER)][nth];
-    const at = start + marker.index + marker[0].length - 2;
-    box.toggleAttribute("checked");
-    live.source = source.slice(0, at) + (marker[1] === " " ? "x" : " ") + source.slice(at + 1);
-    onChange(live.source);
+    const target = e.target as Element;
+    if (target instanceof HTMLInputElement && target.type === "checkbox" && !target.disabled) {
+      e.preventDefault();
+      sync();
+      if (target.dataset.task === undefined) return;
+      const at = Number(target.dataset.task) + 1;
+      const source = live.source!;
+      target.toggleAttribute("checked", source[at] === " ");
+      live.source = source.slice(0, at) + (source[at] === " " ? "x" : " ") + source.slice(at + 1);
+      onChange(live.source);
+    } else if (target.closest("[data-rich]")) {
+      e.preventDefault(); // a press on a rich block leaves an open raw edit to the click, which commits it before it opens the block
+    }
   }
 
   function onClick(e: React.MouseEvent<HTMLElement>) {

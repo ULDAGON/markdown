@@ -77,7 +77,170 @@ test("a mark across blocks marks the text of each block inside its line syntax",
   assert.equal(run("code", "## head\n\nbody text", 5, 11).text, "## he`ad`\n\n`bo`dy text");
   assert.equal(run("italic", "> - [ ] a\n> 1. b", 0, 16).text, "> - [ ] *a*\n> 1. *b*");
   assert.equal(twice("strike", "- one\n- two", 2, 11), "- one\n- two");
-  assert.equal(run("bold", "**one**\ntwo", 0, 11).text, "**one**\n**two**");
+});
+
+test("a mark on the lines of one paragraph is one span", () => {
+  assert.equal(run("bold", "a\nb", 0, 3).text, "**a\nb**");
+  assert.equal(run("bold", "**one**\ntwo", 0, 11).text, "**one\ntwo**");
+  assert.equal(run("bold", "> a\n> b", 0, 7).text, "> **a\n> b**");
+  assert.equal(run("bold", "> a\n> b", 4, 7).text, "> a\n> **b**");
+  assert.equal(run("bold", "a\r\nb", 0, 4).text, "**a\r\nb**");
+});
+
+test("a mark reads the spans of the markdown and removes no text", () => {
+  assert.equal(run("italic", "snake_case_name", 6, 10).text, "snake_*case*_name");
+  assert.equal(run("italic", "a \\*b\\* c", 4, 5).text, "a \\**b*\\* c");
+  assert.equal(run("italic", "2 * 3 * 4", 4, 5).text, "2 * *3* * 4");
+  assert.equal(run("bold", "a ** b ** c", 5, 6).text, "a ** **b** ** c");
+  assert.equal(run("italic", "[*](u) b [*](v)", 7, 8).text, "[*](u) *b* [*](v)");
+  assert.equal(run("italic", "`*` b `*`", 4, 5).text, "`*` *b* `*`");
+  assert.equal(run("italic", "x $a*b$ y", 8, 9).text, "x $a*b$ *y*");
+});
+
+test("a mark off removes only the markers of the span that holds the selection", () => {
+  assert.equal(run("italic", "x `a*b` *c* y", 9, 10).text, "x `a*b` c y");
+  assert.equal(run("strike", "a ~b~ c", 3, 4).text, "a b c");
+  assert.equal(run("bold", "a __b__ c", 4, 5).text, "a b c");
+  assert.deepEqual(run("code", "x `` a`b `` y", 6, 7), { text: "x a`b y", selected: "a`b" });
+  assert.equal(run("bold", "- [ ] **a**", 8, 9).text, "- [ ] a");
+  assert.equal(run("bold", "## **h** ##", 5, 6).text, "## h ##");
+});
+
+test("a mark over marked and unmarked text takes the inner markers off and marks it all", () => {
+  assert.deepEqual(run("bold", "a **b** c", 0, 9), { text: "**a b c**", selected: "a b c" });
+  assert.equal(run("bold", "**a** b", 2, 7).text, "**a b**");
+  assert.equal(run("bold", "**a** b", 0, 7).text, "**a b**");
+  assert.equal(run("italic", "a *b* c *d* e", 0, 13).text, "*a b c d e*");
+});
+
+test("a mark does not start or end inside another span: it takes the whole span", () => {
+  assert.equal(run("bold", "a [link b](u) c", 0, 7).text, "**a [link b](u)** c");
+  assert.equal(run("bold", "[a](u)", 3, 6).text, "**[a](u)**");
+  assert.equal(run("bold", "x `code` y", 3, 5).text, "x **`code`** y");
+  assert.equal(run("italic", "x $a*b$ y", 3, 6).text, "x *$a*b$* y");
+  assert.equal(run("bold", "a [link](u) b", 4, 6).text, "a [l**in**k](u) b");
+});
+
+test("italic writes the emphasis of its block, else of the document, and a star inside a word", () => {
+  assert.equal(run("italic", "_a_ b", 4, 5).text, "_a_ _b_");
+  assert.equal(run("italic", "_a_\n\nb", 5, 6).text, "_a_\n\n_b_");
+  assert.equal(run("italic", "_a_\n\n*d* b", 9, 10).text, "_a_\n\n*d* *b*");
+  assert.equal(run("italic", "_a_ snake_case", 10, 14).text, "_a_ snake_*case*");
+  assert.equal(run("italic", "_a_ bc", 4, 5).text, "_a_ *b*c");
+  assert.equal(run("italic", "_a_ b ", 6).text, "_a_ b _italic_");
+  assert.equal(run("italic", "_a_ b", 5).text, "_a_ b*italic*");
+});
+
+test("code fences text with backticks in a longer run", () => {
+  assert.equal(run("code", "a ` b", 0, 5).text, "``a ` b``");
+  assert.equal(run("code", "`x", 0, 2).text, "`` `x ``");
+  assert.equal(twice("code", "`x", 0, 2), "`x");
+});
+
+test("a mark on a table marks each cell", () => {
+  assert.equal(run("bold", "| a | b |\n| - | - |\n| c | d |", 20, 31).text, "| a | b |\n| - | - |\n| **c** | **d** |");
+});
+
+test("a mark at a caret outside any text goes after the line syntax", () => {
+  assert.equal(run("bold", "- ", 0).text, "- **bold**");
+  assert.equal(run("bold", "a\n\nb", 2).text, "a\n**bold**\nb");
+});
+
+test("a mark on a selection without inline text changes nothing", () => {
+  assert.deepEqual(run("bold", "a   b", 2, 3), { text: "a   b", selected: " " });
+  assert.deepEqual(run("italic", "```\nx*y\n```", 4, 7), { text: "```\nx*y\n```", selected: "x*y" });
+});
+
+// The places a mark meets in real markdown: [text, the selected part].
+const places: [string, string][] = [
+  ["a word b", "word"],
+  ["snake_case_name", "case"],
+  ["see [the link](u) end", "link"],
+  ["`x` word `y`", "word"],
+  ["a \\*word\\* b", "word"],
+  ["> a word\n> b", "word"],
+  ["- a\n  - b word", "word"],
+  ["- a\n\t- word", "word"],
+  ["a\r\nword b", "word"],
+];
+for (const id of ["bold", "italic", "strike", "code"] as const) {
+  test(`${id} twice restores the text`, () => {
+    for (const [value, part] of places) {
+      const [s, e] = [value.indexOf(part), value.indexOf(part) + part.length];
+      assert.notEqual(run(id, value, s, e).text, value);
+      assert.equal(twice(id, value, s, e), value, JSON.stringify(value));
+    }
+  });
+}
+
+// Lines a line tool turns on: [text, the selected part].
+const lineTexts: [string, string][] = [
+  ["a word b", "word"],
+  ["one\ntwo", "one\ntwo"],
+  ["> a\n> word", "a\n> word"],
+  ["- a\n  word", "word"],
+  ["\ta\n\tword", "a\n\tword"],
+  ["a\r\nword\r\nb", "a\r\nword"],
+  ["- a\n\t- b\n\tword", "word"],
+];
+for (const id of ["quote", "ul", "ol", "task"] as const) {
+  test(`${id} twice restores the text`, () => {
+    for (const [value, part] of lineTexts) {
+      if (id === "task" && value.startsWith("- a\n")) continue; // a task in a list comes off as an item
+      // A line that continues an item becomes an item, and off it is a paragraph of its own (separate).
+      if (id !== "quote" && /\n[ \t]+word$/.test(value) && /^- /m.test(value)) continue;
+      const [s, e] = [value.indexOf(part), value.indexOf(part) + part.length];
+      assert.equal(twice(id, value, s, e), value, JSON.stringify(value));
+    }
+  });
+}
+
+test("list tools work inside a quote", () => {
+  assert.equal(run("task", "> - a\n> - b", 4).text, "> - [ ] a\n> - b");
+  assert.equal(run("task", "> - [ ] a\n> - [ ] b", 8).text, "> - a\n> - [ ] b");
+  assert.equal(run("task", "> - [ ] a", 8).text, "> a");
+  assert.equal(run("ul", "> a\n> b", 0, 7).text, "> - a\n> - b");
+  assert.equal(run("ul", "> - a\n> - b", 0, 11).text, "> a\n> b");
+  assert.equal(run("ol", "> a\n> b", 0, 7).text, "> 1. a\n> 2. b");
+  assert.equal(run("ul", "> a\n>\n> b", 0, 9).text, "> - a\n>\n> - b");
+});
+
+test("list tools keep the indent as it is written, and read a tab as 4 columns", () => {
+  assert.equal(run("ul", "\ta\n\tb", 0, 5).text, "\t- a\n\t- b");
+  assert.equal(twice("ul", "\ta\n\tb", 0, 5), "\ta\n\tb");
+  assert.equal(run("ol", "- a\n\t- b", 0, 8).text, "1. a\n     1. b");
+});
+
+test("an item that comes off is a paragraph of its own, and on again it joins the list", () => {
+  assert.equal(run("ul", "- one\n- two\n- three", 14).text, "- one\n- two\n\nthree");
+  assert.equal(twice("ul", "- one\n- two\n- three", 14), "- one\n- two\n- three");
+  assert.equal(twice("ul", "- a\n- b\n- c", 6), "- a\n- b\n- c");
+  assert.equal(run("ul", "> - a\n> - b", 10).text, "> - a\n>\n> b");
+  assert.equal(twice("ul", "> - a\n> - b", 10), "> - a\n> - b");
+  assert.equal(twice("ol", "1. a\n2. b\n3. c", 8), "1. a\n2. b\n3. c");
+  // A line that is not next to a list does not take a blank line.
+  assert.equal(twice("ul", "one\ntwo", 5), "one\ntwo");
+});
+
+test("selectionAfter keeps the caret on its text when a blank line comes or goes", () => {
+  for (const [value, at] of [["- one\n- two\n- three", 16], ["- one\n- two\n\nthree", 15]] as const) {
+    const edit = sourceEdit("ul", value, at, at);
+    const text = value.slice(0, edit.start) + edit.text + value.slice(edit.end);
+    const [s] = selectionAfter("ul", value, edit, at, at);
+    assert.equal(text.slice(s - 2, s), value.slice(at - 2, at));
+  }
+});
+
+test("off inside a list: a bullet or a number comes off, a task keeps its item", () => {
+  assert.equal(run("ul", "- a\n- b\n- c", 6).text, "- a\n\nb\n\n- c");
+  assert.equal(run("ol", "1. a\n2. b\n3. c", 8).text, "1. a\n\nb\n\n3. c");
+  assert.equal(run("task", "- [ ] a\n- [ ] b\n- [ ] c", 14).text, "- [ ] a\n- b\n- [ ] c");
+  assert.equal(run("task", "1. a\n2. [ ] b", 9).text, "1. a\n2. b");
+});
+
+test("a list on lines that are partly items keeps their markers and boxes", () => {
+  assert.equal(run("task", "- [x] a\nb", 0, 9).text, "- [x] a\n- [ ] b");
+  assert.equal(run("ul", "* a\nb", 0, 5).text, "* a\n* b".replace("* b", "- b"));
 });
 
 test("heading sets, replaces and clears the level", () => {
@@ -91,10 +254,12 @@ test("heading works on the first line when it is empty and on every selected lin
   assert.equal(run("heading", "a\nb\nc", 0, 3, 1).text, "# a\n# b\nc");
 });
 
-test("heading leaves out blank lines and keeps the indent it takes off", () => {
+test("heading leaves out blank lines and goes after the quote and list syntax", () => {
   assert.equal(run("heading", "one\n\ntwo", 0, 8, 2).text, "## one\n\n## two");
-  assert.equal(run("heading", "- a\n  - b", 6, 6, 2).text, "- a\n##   - b");
-  assert.equal(run("heading", "- a\n##   - b", 6, 6, 0).text, "- a\n  - b");
+  assert.equal(run("heading", "- a\n  - b", 8, 8, 2).text, "- a\n  - ## b");
+  assert.equal(run("heading", "- a\n  - ## b", 11, 11, 0).text, "- a\n  - b");
+  assert.equal(run("heading", "> - b", 4, 4, 3).text, "> - ### b");
+  assert.equal(headingLevel("> - ### b", 8), 3);
 });
 
 test("heading puts the caret at the end of a single line", () => {
@@ -135,10 +300,10 @@ test("a line tool selects every line it changed, so a second click toggles them 
 });
 
 test("taking a list marker off keeps the indent", () => {
-  assert.equal(run("ul", "- a\n  - b", 8).text, "- a\n  b");
+  assert.equal(run("ul", "- a\n  - b", 8).text, "- a\n\n  b");
   assert.equal(twice("ul", "- a\n  - b", 8), "- a\n  - b");
-  assert.equal(run("ol", "1. a\n   1. b\n2. c", 11).text, "1. a\n   - b\n2. c");
-  assert.equal(twice("ol", "1. a\n   - b\n2. c", 11), "1. a\n   - b\n2. c");
+  assert.equal(run("ol", "1. a\n   1. b\n2. c", 11).text, "1. a\n\n   b\n\n2. c");
+  assert.equal(twice("ol", "1. a\n   1. b\n2. c", 11), "1. a\n   1. b\n2. c");
   assert.equal(run("ol", "  1. a\n  2. b", 0, 13).text, "  a\n  b");
 });
 
@@ -254,7 +419,16 @@ test("continueList ends the list on an empty item that is not the last line", ()
   assert.deepEqual(continueList("- a\n- \nb", 6), { start: 4, end: 6, text: "", select: [0, 0] });
 });
 
+test("continueList keeps the quote of an item in a quote", () => {
+  assert.equal(continueList("> - a", 5)?.text, "\n> - ");
+  assert.equal(continueList("> 1. [x] a", 10)?.text, "\n> 2. [ ] ");
+  assert.deepEqual(continueList("> - ", 4), { start: 0, end: 4, text: "", select: [0, 0] });
+  assert.equal(continueList("\t- a", 4)?.text, "\n\t- ");
+});
+
 test("continueList returns null outside a list", () => {
+  assert.equal(continueList("-", 1), null);
+  assert.equal(continueList("**a**", 5), null);
   assert.equal(continueList("plain", 5), null);
   assert.equal(continueList("", 0), null);
 });
@@ -269,4 +443,15 @@ test("headingLevel reads the caret line", () => {
   assert.equal(headingLevel("# a\n### b\nc", 10), 0);
   assert.equal(headingLevel("####### seven", 0), 0);
   assert.equal(headingLevel("", 0), 0);
+});
+
+test("line tools leave table rows and a heading leaves task items as they are", () => {
+  const table = "| a | b |\n| --- | --- |\n| cell | two |\n\nend";
+  for (const id of ["quote", "ul", "ol", "task"] as const) assert.equal(run(id, table, 30).text, table, id);
+  assert.equal(run("heading", table, 30, 30, 2).text, table);
+  assert.equal(run("heading", "- [ ] open", 8, 8, 2).text, "- [ ] open");
+});
+
+test("marks work on a line with a bare URL", () => {
+  assert.equal(run("bold", "see https://a.example/x now", 24, 27).text, "see https://a.example/x **now**");
 });
