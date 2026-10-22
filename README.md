@@ -3,14 +3,20 @@
 A two-pane markdown viewer in the ULDAGON style. Source left, preview right; edit either side.
 
 ```sh
-python3 -m http.server 4410   # then open http://localhost:4410
+npm install
+npm run dev     # http://localhost:4410
+npm test
 ```
 
-No build step. `css/uldagon.css` and `assets/fonts/` come from [ULDAGON/uldagon-design](https://github.com/ULDAGON/uldagon-design); `vendor/` holds marked, DOMPurify and turndown (+ gfm plugin).
+Next.js (App Router), React and TypeScript. The tokens in `src/styles/uldagon.css` and the fonts in `src/fonts/` come from [ULDAGON/uldagon-design](https://github.com/ULDAGON/uldagon-design).
 
 | file | what |
 |---|---|
-| `js/app.js` | wiring: sync, file import and download, status bar, keys, theme |
-| `js/source.js` | markdown edits on the textarea, undoable with ⌘z |
-| `js/preview.js` | render markdown, rich edits on the preview, preview back to markdown |
-| `js/toolbar.js` | the one tool list both cards share |
+| `src/app/` | layout (fonts, theme script), page, global styles |
+| `src/components/Editor.tsx` | state, file open and download, keys, scroll sync between the two cards |
+| `src/components/Toolbar.tsx` | the one tool list both cards share, and the inline URL field |
+| `src/components/Preview.tsx` | the rendered card |
+| `src/lib/source-edits.ts` | markdown edits on the source as pure functions |
+| `src/lib/stats.ts` | the status line: characters, size, reading time |
+| `src/lib/markdown/` | markdown to HTML and back |
+| `tests/` | `npm test` |

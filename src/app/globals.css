@@ -1,14 +1,9 @@
+@import "../styles/uldagon.css";
+
 /*
  * Markdown. on the ULDAGON tokens: 1px hairlines, square corners, one accent, no shadow.
- * Every control is JetBrains Mono; only the rendered preview reads in a proportional face.
+ * Every control is JetBrains Mono (next/font in layout.tsx); only the rendered preview reads in a proportional face.
  */
-
-@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: block;
-  src: url(../assets/fonts/JetBrainsMono-latin.woff2) format("woff2");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
-@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: block;
-  src: url(../assets/fonts/JetBrainsMono-latin-ext.woff2) format("woff2");
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
 
 :root { --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; --tool-h: 24px; }
 
@@ -69,7 +64,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* ------------------------------------------------------------------ panes */
 .panes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-height: 0; padding: 0 var(--gutter); }
 .card { position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; border: 1px solid var(--c-line); background: var(--c-surface); }
-.card[data-drop] { border-color: var(--c-accent); background: var(--c-wash); }
+.panes[data-drop] .card { border-color: var(--c-accent); background: var(--c-wash); }
 
 .toolbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 4px; border-bottom: 1px solid var(--c-line); }
 .toolbar .sep { width: 1px; height: 14px; margin: 0 6px; background: var(--c-line); }
@@ -98,11 +93,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .ask .field { flex: 1; width: auto; height: var(--tool-h); }
 .ask span { color: var(--c-text-dim); font-size: var(--size-small); white-space: nowrap; }
 
-#source {
+.source {
   display: block; width: 100%; height: 100%; margin: 0; padding: 16px 18px; resize: none; border: 0; outline: 0;
   background: transparent; line-height: 1.65; tab-size: 4; caret-color: var(--c-accent-text);
 }
-#source::placeholder { color: var(--c-text-dim); }
+.source::placeholder { color: var(--c-text-dim); }
 
 /* ------------------------------------------------------------------ preview */
 .prose {
@@ -143,6 +138,30 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .prose table { width: 100%; margin: 0 0 12px; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
 .prose th { font-weight: 400; color: var(--c-text-dim); text-align: left; }
 .prose :is(th, td) { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--c-line); }
+
+/* Code colours (highlight.js classes). One accent: keywords, then one mix of accent and text; the rest keeps the text colour. */
+.prose :is(.hljs-keyword, .hljs-built_in, .hljs-literal, .hljs-selector-tag, .hljs-doctag) { color: var(--c-accent-text); }
+.prose :is(.hljs-string, .hljs-number, .hljs-regexp, .hljs-symbol, .hljs-bullet, .hljs-link) { color: color-mix(in srgb, var(--c-accent-text) 55%, var(--c-text)); }
+.prose :is(.hljs-comment, .hljs-quote, .hljs-meta) { color: var(--c-text-dim); }
+.prose .hljs-title { font-weight: 600; }
+.prose .hljs-emphasis { font-style: italic; }
+.prose .hljs-strong { font-weight: 700; }
+.prose .hljs-deletion { color: var(--c-text-dim); text-decoration: line-through; }
+
+/* Diagrams, maths, anchors, footnotes. */
+.prose .diagram { display: flex; justify-content: center; margin: 0 0 12px; overflow-x: auto; }
+.prose .diagram svg { max-width: 100%; height: auto; }
+.prose .katex-display { overflow-x: auto; overflow-y: hidden; }
+.prose .anchor { margin-left: .5em; font-family: var(--mono); font-size: .7em; color: var(--c-text-dim); text-decoration: none; opacity: 0; }
+.prose :is(h1, h2, h3, h4, h5, h6):hover .anchor, .prose .anchor:focus-visible { opacity: 1; }
+.prose .footnotes { margin-top: 32px; padding-top: 12px; border-top: 1px solid var(--c-line); font-size: var(--size-small); color: var(--c-text-dim); }
+.prose .footnotes > h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } /* the hairline already says "footnotes" */
+.prose .footnotes :is(ol, p) { margin: 0; }
+.prose .footnotes a { text-decoration: none; }
+
+/* A rendered block that opens its raw markdown on click. */
+.prose [data-rich] { cursor: pointer; }
+.prose [data-rich]:hover { outline: 1px solid var(--c-accent); outline-offset: 4px; }
 
 /* ------------------------------------------------------------------ status */
 .status { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 8px var(--gutter) 10px; font-size: var(--size-small); color: var(--c-text-dim); }
