@@ -76,7 +76,7 @@ export default function Editor() {
   // ------------------------------------------------------------------ file
   function fileName() {
     const raw = name.trim().replace(/[\\/:*?"<>|]/g, "-") || "untitled.md";
-    return /\.[a-z0-9]+$/i.test(raw) ? raw : `${raw}.md`;
+    return /\.(md|markdown|mdx|txt)$/i.test(raw) ? raw : `${raw}.md`;
   }
 
   function download() {

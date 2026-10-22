@@ -27,7 +27,7 @@ function spotsOf(block: Element, source: string): Spot[] {
   const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
     // Whitespace between elements, as between list items, is not in the source; text that the reader cannot
-    // edit, as KaTeX or a heading anchor, is not in it either.
+    // edit, as KaTeX, is not in it either.
     if (!node.data.trim() || !node.parentElement!.isContentEditable) continue;
     for (let offset = 0; offset < node.data.length; offset++) {
       const found = source.indexOf(node.data[offset], at);

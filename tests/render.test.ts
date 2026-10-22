@@ -77,10 +77,18 @@ test("a block that toMarkdown cannot give back is rich", () => {
     "a&nbsp;b",
     "&copy; 2026",
     "&#123;",
+    "a\u00a0b",
     "> quote\n>\n> [e]: https://e.f",
+    "[bad](javascript:alert(1)) text",
+    "![bad](javascript:alert(1))",
+    "<javascript:alert(1)>",
   ];
-  const markdown = [...lossy, "plain *text*", "[d]: https://x.y"].join("\n\n");
-  assert.deepEqual(blocksOf(markdown), [...lossy.map((block): [string, boolean] => [block, true]), ["plain *text*", false]]);
+  const lossless = ["plain *text*", "[relative](/x), [empty]() and ![empty]()"];
+  const markdown = [...lossy, ...lossless, "[d]: https://x.y"].join("\n\n");
+  assert.deepEqual(blocksOf(markdown), [
+    ...lossy.map((block): [string, boolean] => [block, true]),
+    ...lossless.map((block): [string, boolean] => [block, false]),
+  ]);
 });
 
 test("raw HTML that encloses markdown is one rich block", () => {
@@ -136,15 +144,9 @@ test("footnote references link to the footnotes section, which is not editable",
   assert.equal(footnotes.properties.dataStart, undefined);
 });
 
-test("headings get a non-editable anchor to their slug", () => {
-  const anchor = heading.children.at(-1) as Element;
+test("a heading gets its slug as id and holds only its text", () => {
   // No prefix on heading ids: links the user writes as `[x](#title)` must keep working.
-  assert.equal(heading.properties.id, "title");
-  assert.equal(anchor.tagName, "a");
-  assert.ok(hasClass(anchor, "anchor"));
-  assert.equal(anchor.properties.href, "#title");
-  assert.equal(anchor.properties.contentEditable, "false");
-  assert.equal(anchor.properties.ariaHidden, "true");
+  assert.equal(render("## My Title").html, '<h2 data-start="0" data-end="11" id="my-title">My Title</h2>');
 });
 
 test("raw HTML loses scripts and event handlers", () => {

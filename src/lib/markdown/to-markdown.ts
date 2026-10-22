@@ -1,8 +1,8 @@
-import type { Element } from "hast";
+import type { Element, ElementContent } from "hast";
 import { fromHtml } from "hast-util-from-html";
-import { defaultHandlers, toMdast, type Handle } from "hast-util-to-mdast";
+import { defaultHandlers, toMdast, type Handle, type State } from "hast-util-to-mdast";
 import type { Parent, Root } from "mdast";
-import remarkGfm from "remark-gfm";
+import remarkGfm, { type Options as GfmOptions } from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import remarkStringify, { type Options } from "remark-stringify";
@@ -13,7 +13,14 @@ import { hasClass } from "./render.ts";
 const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMath);
 
 const handlers: Record<string, Handle> = {
-  a: (state, node) => (hasClass(node, "anchor") ? undefined : defaultHandlers.a(state, node)),
+  ul: nestStrayLists,
+  ol: nestStrayLists,
+  li(state, node) {
+    const item = defaultHandlers.li(state, node);
+    // hast-util-to-mdast takes an item with a nested list of two items for a loose item. Only a loose item has a `p`.
+    item.spread = node.children.some((child) => child.type === "element" && child.tagName === "p");
+    return item;
+  },
   sup(state, node) {
     const label = footnoteLabel(node);
     return label ? { type: "footnoteReference", identifier: label, label } : state.all(node);
@@ -30,15 +37,70 @@ const handlers: Record<string, Handle> = {
   },
 };
 
+type Style = Options & GfmOptions;
+
 export function toMarkdown(html: string, original: string): string {
   const mdast = toMdast(fromHtml(html, { fragment: true }), { handlers, newlines: true }) as Root;
-  visit(mdast, ["paragraph", "heading", "tableCell"] as const, trimBlockEnd);
+  // Chrome types U+00A0 for a space that would collapse. A no-break space of the source makes its block rich (render.ts).
+  visit(mdast, (node) => {
+    if ("value" in node) node.value = node.value.replaceAll("\u00a0", " ");
+  });
+  visit(mdast, ["paragraph", "heading", "tableCell"] as const, trimBlock);
+  const style = styleOf(original);
+  return mdast.children[0]?.type === "table" ? keepTableRows(mdast, original, style) : stringify(mdast, style);
+}
+
+function stringify(mdast: Root, style: Style): string {
   return unified()
-    .use(remarkGfm)
+    .use(remarkGfm, style)
     .use(remarkMath)
-    .use(remarkStringify, styleOf(original))
+    .use(remarkStringify, { ...style, handlers: { text } })
     .stringify(mdast)
     .trimEnd();
+}
+
+/**
+ * The default text handler with one change. `safe` decides on the first character after a text, which for a footnote
+ * reference is the `[` of `[^1]`: it would escape a `!` before it as the start of an image. GFM reads `![^1]` as a
+ * `!` and a footnote reference, so `safe` gets the `^` instead.
+ */
+const text: NonNullable<Options["handlers"]>["text"] = (node, parent, state, info) => {
+  const siblings = parent?.children ?? [];
+  const index = siblings.indexOf(node);
+  const afterNode = siblings[index + 1];
+  const after = afterNode?.type === "footnoteReference" ? "^" : info.after;
+  return state.safe(node.value, { ...info, after, afterNode, beforeNode: siblings[index - 1] });
+};
+
+/**
+ * An edit in a table writes only the rows whose cells changed; all other lines of `original` stay byte for byte.
+ * The rows are compared without padding, because the padding of a row depends on the other rows.
+ * A changed row is padded when the original lines are, which then all have one length.
+ */
+function keepTableRows(table: Root, original: string, style: Style): string {
+  const lines = original.split("\n");
+  const compact = { ...style, tablePipeAlign: false };
+  const before = stringify(parser.parse(original), compact).split("\n");
+  const after = stringify(table, compact).split("\n");
+  const written = new Set(lines.map((line) => line.length)).size === 1 ? stringify(table, style).split("\n") : after;
+  return written.map((line, i) => (after[i] === before[i] ? lines[i] : line)).join("\n");
+}
+
+/** Chrome's outdent of a nested item leaves a list directly in a list: it is the nested list of the item before it. */
+function nestStrayLists(state: State, node: Element) {
+  const children: ElementContent[] = [];
+  let item = -1;
+  for (const child of node.children) {
+    const list = child.type === "element" && (child.tagName === "ul" || child.tagName === "ol");
+    if (list && item >= 0) {
+      const parent = children[item] as Element;
+      children[item] = { ...parent, children: [...parent.children, child] };
+      continue;
+    }
+    if (child.type === "element" && child.tagName === "li") item = children.length;
+    children.push(child);
+  }
+  return defaultHandlers[node.tagName as "ul" | "ol"](state, { ...node, children });
 }
 
 /** `<sup><a href="#user-content-fn-label" data-footnote-ref>` gives `label`. */
@@ -68,11 +130,13 @@ function textOf(node: Element): string {
 }
 
 /**
+ * Markdown cannot hold a space at the start or the end of a block, where Chrome types one so that it does not collapse.
  * A `<br>` that the editor leaves at the end of a block would print as a stray `\`.
- * Chrome types U+00A0 for a space at the end of a text, where a space would collapse;
- * markdown cannot hold a space at the end of a block, so it goes. A U+00A0 elsewhere stays.
  */
-function trimBlockEnd(block: Parent) {
+function trimBlock(block: Parent) {
+  let first = block.children[0];
+  while (first && "children" in first) first = first.children[0];
+  if (first?.type === "text") first.value = first.value.trimStart();
   let parent = block;
   while (true) {
     const last = parent.children.at(-1);
@@ -86,8 +150,8 @@ function trimBlockEnd(block: Parent) {
 }
 
 /** Takes the markers that `original` uses, so an edit keeps the style of the source. */
-function styleOf(original: string): Options {
-  const style: Options = { bullet: "-", emphasis: "*", strong: "*", fence: "`", rule: "-", listItemIndent: "one" };
+function styleOf(original: string): Style {
+  const style: Style = { bullet: "-", emphasis: "*", strong: "*", fence: "`", rule: "-", listItemIndent: "one" };
   visit(parser.parse(original), (node) => {
     const start = node.position!.start.offset!;
     const mark = original[start];

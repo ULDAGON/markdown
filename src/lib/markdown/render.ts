@@ -1,6 +1,5 @@
 import type { Element, ElementContent, Root, RootContent } from "hast";
 import type { Root as MdastRoot, RootContent as MdastContent } from "mdast";
-import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
@@ -32,11 +31,6 @@ const toHast = unified()
 const toHtml = unified()
   .use(linkFootnotes)
   .use(rehypeSlug)
-  .use(rehypeAutolinkHeadings, {
-    behavior: "append",
-    properties: { className: ["anchor"], contentEditable: "false", ariaHidden: "true" },
-    content: { type: "text", value: "#" },
-  })
   .use(rehypeKatex)
   .use(lockRichContent)
   .use(trimTaskSpace)
@@ -65,7 +59,8 @@ function isBlock(node: RootContent): node is Element {
 
 /** Node types that toMarkdown drops or rewrites. */
 const LOSSY = new Set(["html", "linkReference", "imageReference", "definition", "footnoteDefinition"]);
-const CHARACTER_REFERENCE = /&(?:#\d+|#x[\da-f]+|[a-z][\da-z]*);/i;
+/** Text that toMarkdown rewrites: a character reference, and a no-break space, which toMarkdown takes for one that the browser typed. */
+const LOSSY_TEXT = /\u00a0|&(?:#\d+|#x[\da-f]+|[a-z][\da-z]*);/i;
 
 /**
  * The source range of each top-level block, and whether it is rich: edited as source text, not as rich text.
@@ -86,7 +81,7 @@ function planBlocks(tree: MdastRoot, source: string): PlannedBlock[] {
 }
 
 function isRich(node: MdastContent, source: string): boolean {
-  if (node.type === "code" || node.type === "math" || CHARACTER_REFERENCE.test(source)) return true;
+  if (node.type === "code" || node.type === "math" || LOSSY_TEXT.test(source)) return true;
   let lossy = false;
   visit(node, (child) => {
     if (!LOSSY.has(child.type)) return;
@@ -138,7 +133,7 @@ function markBlocks(tree: Root, planned: PlannedBlock[]): Root {
 }
 
 function markBlock({ start, end, rich }: PlannedBlock, nodes: RootContent[]): Element {
-  const properties = { dataStart: start, dataEnd: end, ...(rich && { dataRich: true }) };
+  const properties = { dataStart: start, dataEnd: end, ...((rich || dropsUrl(nodes)) && { dataRich: true }) };
   const [node] = nodes;
   // Sanitize drops doctypes and comments, so only elements and text are left.
   if (nodes.length > 1 || node.type !== "element") return element(properties, nodes as ElementContent[]);
@@ -147,6 +142,17 @@ function markBlock({ start, end, rich }: PlannedBlock, nodes: RootContent[]): El
     return element({ ...properties, className: ["diagram"] }, [{ ...node, children: code.children }]);
   }
   return { ...node, properties: { ...node.properties, ...properties } };
+}
+
+/** Sanitize removes an unsafe URL, as `javascript:`, but keeps its link or image: toMarkdown would write `[text]()`. */
+function dropsUrl(nodes: RootContent[]): boolean {
+  let dropped = false;
+  visit({ type: "root", children: nodes }, "element", (node) => {
+    const { tagName, properties } = node;
+    dropped = (tagName === "a" && properties.href === undefined) || (tagName === "img" && properties.src === undefined);
+    if (dropped) return EXIT;
+  });
+  return dropped;
 }
 
 function element(properties: Element["properties"], children: ElementContent[]): Element {

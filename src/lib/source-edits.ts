@@ -9,14 +9,17 @@ export type ToolId =
 /** Replace start..end with text, then select select[0]..select[1] inside the new text. */
 export type Edit = { start: number; end: number; text: string; select: [number, number] };
 
-const LIST = /^(\s*)([-*+] \[[ xX]\] |[-*+] |\d+[.)] )/;
-type Prefix = { test: RegExp; make: (i: number) => string; keep?: boolean };
-const PREFIX: Record<"quote" | "ul" | "ol" | "task", Prefix> = {
-  quote: { test: /^> ?/, make: () => "> ", keep: true },
-  ul: { test: /^\s*[-*+] (?!\[[ xX]\] )/, make: () => "- " },
-  ol: { test: /^\s*\d+[.)] /, make: (i: number) => `${i + 1}. ` },
-  task: { test: /^\s*[-*+] \[[ xX]\] /, make: () => "- [ ] " },
+type Mark = "bold" | "italic" | "strike" | "code";
+/** A mark writes its marker; it reads a run of one of its characters whose length holds. */
+const MARK: Record<Mark, { marker: string; chars: string; holds: (run: number) => boolean }> = {
+  bold: { marker: "**", chars: "*", holds: (run) => run >= 2 },
+  // `***x***` is bold and italic, so an odd run is italic and the `**` of bold is not. An intraword `_` is no emphasis.
+  italic: { marker: "*", chars: "*_", holds: (run) => run % 2 === 1 },
+  strike: { marker: "~~", chars: "~", holds: (run) => run >= 2 },
+  code: { marker: "`", chars: "`", holds: (run) => run >= 1 },
 };
+// The syntax at the start of a line that a mark stays out of: indent, quote, heading, list marker, task box.
+const SYNTAX = /^(?:\s*(?:> ?|#{1,6} |(?:[-*+]|\d+[.)]) (?:\[[ xX]\] )?))*\s*/;
 const TABLE = "| column | column |\n| --- | --- |\n| cell | cell |";
 
 const edit = (start: number, end: number, text: string, from = text.length, to = from): Edit => ({
@@ -34,43 +37,121 @@ function lineEnd(value: string, index: number) {
   return newline === -1 ? value.length : newline;
 }
 
-function wrap(marker: string, placeholder: string, value: string, s: number, e: number): Edit {
+/** A replacement of start..end; the selection leaves out the markers it adds at both ends of text. */
+type Part = { start: number; end: number; text: string; added: number };
+
+function mark(id: Mark, value: string, s: number, e: number): Edit {
+  const { marker, chars, holds } = MARK[id];
   const m = marker.length;
-  const sel = value.slice(s, e);
-  if (value.slice(s - m, s) === marker && value.slice(e, e + m) === marker) return edit(s - m, e + m, sel, 0, sel.length);
-  if (sel.length > 2 * m && sel.startsWith(marker) && sel.endsWith(marker)) {
-    const inner = sel.slice(m, -m);
-    return edit(s, e, inner, 0, inner.length);
+
+  // The part that removes the markers of the span that a..b is in, or null. The markers at the ends of a..b count too.
+  function unmark(a: number, b: number): Part | null {
+    const start = lineStart(value, a);
+    const line = value.slice(start, lineEnd(value, a));
+    const from = line.match(SYNTAX)![0].length;
+    for (const c of chars) {
+      let [x, y] = [a - start, b - start];
+      while (x < y && line[x] === c) x++;
+      while (y > x && line[y - 1] === c) y--;
+      const runs = [...line.slice(from).matchAll(new RegExp(`\\${c}+`, "g"))]
+        .filter((run) => holds(run[0].length))
+        .map((run) => [from + run.index, from + run.index + run[0].length]);
+      const before = runs.filter(([, end]) => end <= x);
+      const after = runs.filter(([begin]) => begin >= y);
+      // An odd count of markers before it and none inside it: a..b is inside one span.
+      if (before.length % 2 && after.length && before.length + after.length === runs.length) {
+        const [open, close] = [start + before.at(-1)![1] - m, start + after[0][0] + m];
+        const text = value.slice(open + m, close - m);
+        return { start: open, end: close, text, added: 0 };
+      }
+    }
+    return null;
   }
-  const inner = sel || placeholder;
-  return edit(s, e, marker + inner + marker, m, m + inner.length);
+
+  // Each line of the selection is marked on its own, after its line syntax and without the spaces at its ends.
+  const ranges: [number, number][] = [];
+  for (let at = lineStart(value, s); at <= e; at = lineEnd(value, at) + 1) {
+    const line = value.slice(at, lineEnd(value, at));
+    const [a, b] = [Math.max(s, at + line.match(SYNTAX)![0].length), Math.min(e, at + line.length)];
+    const text = value.slice(a, b);
+    if (text.trim()) ranges.push([a + text.length - text.trimStart().length, b - text.length + text.trimEnd().length]);
+  }
+  if (!ranges.length) ranges.push([s, s]);
+
+  const spans = ranges.map(([a, b]) => unmark(a, b));
+  const on = spans.some((span) => !span);
+  const parts = ranges.map(([a, b], i): Part => {
+    const text = value.slice(a, b) || id;
+    if (!on) return spans[i]!;
+    if (spans[i]) return { start: a, end: b, text, added: 0 };
+    return { start: a, end: b, text: marker + text + marker, added: m };
+  });
+  let text = "";
+  for (const [i, part] of parts.entries()) text += value.slice(i ? parts[i - 1].end : part.start, part.start) + part.text;
+  const last = parts.at(-1)!;
+  return edit(parts[0].start, last.end, text, parts[0].added, text.length - last.added);
 }
 
-// Apply fn to every line the selection touches. around holds the line before and the line after them.
+// Apply fn to every line the selection touches, and select them. around holds the line before and the line after them.
 function lines(value: string, s: number, e: number, fn: (lines: string[], around: string[]) => string[]): Edit {
   const start = lineStart(value, s);
   // A selection that ends right after a line break does not touch the next line.
   const end = lineEnd(value, e > s && value[e - 1] === "\n" ? e - 1 : e);
   const around = [start ? value.slice(lineStart(value, start - 1), start - 1) : "", value.slice(end + 1, lineEnd(value, end + 1))];
   const text = fn(value.slice(start, end).split("\n"), around).join("\n");
-  return edit(start, end, text, s === e ? text.length : 0);
+  return edit(start, end, text, s === e ? text.length : 0, text.length);
 }
 
-function prefix(kind: keyof typeof PREFIX, value: string, s: number, e: number): Edit {
-  const { test, make, keep } = PREFIX[kind];
+// An empty list item or heading renders its marker as text, so they leave out the blank lines between selected lines.
+const blank = (line: string, lines: string[]) => !line.trim() && lines.some((other) => other.trim());
+
+function heading(level: number, value: string, s: number, e: number): Edit {
+  return lines(value, s, e, (ls) => ls.map((l) => (blank(l, ls) ? l : (level ? "#".repeat(level) + " " : "") + l.replace(/^#{1,6} /, ""))));
+}
+
+function quote(value: string, s: number, e: number): Edit {
+  return lines(value, s, e, (ls) => (ls.every((l) => /^> ?/.test(l)) ? ls.map((l) => l.replace(/^> ?/, "")) : ls.map((l) => "> " + l)));
+}
+
+type List = "ul" | "ol" | "task";
+/** A line as a list item: marker and box are empty when the line has none. */
+function item(line: string) {
+  const [head, indent, marker = "", box = ""] = line.match(/^(\s*)(?:([-*+] |\d+[.)] )(\[[ xX]\] )?)?/)!;
+  return { indent, marker, box, rest: line.slice(head.length) };
+}
+const numbered = (marker: string) => /^\d/.test(marker);
+const IS: Record<List, (i: ReturnType<typeof item>) => boolean> = {
+  ul: (i) => !!i.marker && !numbered(i.marker) && !i.box,
+  ol: (i) => numbered(i.marker) && !i.box,
+  task: (i) => !!i.box,
+};
+
+function list(kind: List, value: string, s: number, e: number): Edit {
   return lines(value, s, e, (ls, around) => {
-    // An empty list item renders its marker as text, so a list leaves out the blank lines between selected lines.
-    const skip = (l: string) => !keep && !l.trim() && ls.some((other) => other.trim());
-    const all = ls.every((l) => skip(l) || test.test(l));
-    // A task inside a list stays in it as a bullet: as a plain line it would join the item before it.
-    const off = kind === "task" && around.some((l) => LIST.test(l)) ? /\[[ xX]\] / : test;
-    let item = 0;
-    return ls.map((l) => {
-      if (skip(l)) return l;
-      if (all) return l.replace(off, "");
-      const marker = make(item++);
-      // A list marker replaces the marker that the line has, after its indent.
-      return keep ? marker + l : l.replace(LIST, "$1").replace(/^\s*/, `$&${marker}`);
+    const items = ls.map(item);
+    if (items.every((i, n) => blank(ls[n], ls) || IS[kind](i))) {
+      // A numbered item or a task inside a list stays an item: as a plain line it would join the item before it.
+      const inList = around.some((l) => item(l).marker);
+      return items.map(({ indent, marker, rest }, n) => {
+        if (blank(ls[n], ls)) return ls[n];
+        if (kind === "task" && (inList || numbered(marker))) return indent + marker + rest;
+        return indent + (kind === "ol" && inList ? "- " : "") + rest;
+      });
+    }
+    // A child item starts at the text of its parent, so it moves with the width of the new parent marker.
+    const parents: { text: number; moved: number }[] = [];
+    const count: number[] = []; // the number of the item on each level
+    return items.map(({ indent, marker, rest }, n) => {
+      if (blank(ls[n], ls)) return ls[n];
+      while (parents.length && indent.length < parents.at(-1)!.text) parents.pop();
+      const parent = parents.at(-1);
+      const at = parent ? parent.moved + indent.length - parent.text : indent.length;
+      count.length = parents.length + 1;
+      count[parents.length] = (count[parents.length] ?? 0) + 1;
+      // A task on a numbered item keeps its number.
+      const next = kind === "ol" ? `${count[parents.length]}. ` : kind === "task" && numbered(marker) ? marker : "- ";
+      if (marker) parents.push({ text: indent.length + marker.length, moved: at + next.length });
+      return " ".repeat(at) + next + (kind === "task" ? "[ ] " : "") + rest;
     });
   });
 }
@@ -93,15 +174,15 @@ function link(value: string, s: number, e: number): Edit {
 /** The edit for a tool. `arg` is the heading level (0 clears the heading). */
 export function sourceEdit(id: ToolId, value: string, s: number, e: number, arg = 0): Edit {
   switch (id) {
-    case "bold": return wrap("**", "bold", value, s, e);
-    case "italic": return wrap("_", "italic", value, s, e);
-    case "strike": return wrap("~~", "strike", value, s, e);
-    case "code": return wrap("`", "code", value, s, e);
-    case "heading": return lines(value, s, e, (ls) => ls.map((l) => (arg ? "#".repeat(arg) + " " : "") + l.replace(/^#{1,6}\s+/, "")));
-    case "quote":
+    case "bold":
+    case "italic":
+    case "strike":
+    case "code": return mark(id, value, s, e);
+    case "heading": return heading(arg, value, s, e);
+    case "quote": return quote(value, s, e);
     case "ul":
     case "ol":
-    case "task": return prefix(id, value, s, e);
+    case "task": return list(id, value, s, e);
     case "link": return link(value, s, e);
     case "codeblock": return block(value, s, e, (sel) => ({ text: "```\n" + (sel || "code") + "\n```", from: 4, to: 4 + (sel || "code").length }));
     case "table": return block(value, s, e, () => ({ text: TABLE, from: 2, to: 8 }));

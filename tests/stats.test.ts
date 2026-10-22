@@ -16,6 +16,12 @@ test("stats counts bytes, not characters", () => {
   assert.equal(stats("ä"), "1 character · 2 b · 1 min read");
 });
 
+test("stats counts what reads as one character once", () => {
+  assert.equal(stats("😀"), "1 character · 4 b · 1 min read");
+  assert.equal(stats("🇩🇪"), "1 character · 8 b · 1 min read");
+  assert.equal(stats("e\u0301"), "1 character · 3 b · 1 min read");
+});
+
 test("stats shows megabytes", () => {
   assert.match(stats("x ".repeat(1024 * 1024)), /2\.0 mb/);
 });

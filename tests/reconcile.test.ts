@@ -123,6 +123,13 @@ test("a definition between two replaced blocks goes after the new blocks", () =>
   check(result, "A\n\nBC\n\n[^1]: note\n\nD", ["A", "BC", "D"]);
 });
 
+test("a comment between two edited blocks stays between them", () => {
+  const source = "one\n\n<!-- keep   this -->\n\ntwo";
+  const [one, two] = rangesOf(source, ["one", "two"]);
+  const result = reconcile(source, [one, two], [added("one1"), added("two2")]);
+  check(result, "one1\n\n<!-- keep   this -->\n\ntwo2", ["one1", "two2"]);
+});
+
 test("a single newline at a hunk edge becomes a blank line", () => {
   const source = "# H\nText\n";
   const [heading, text] = rangesOf(source, ["# H", "Text"]);
@@ -135,6 +142,22 @@ test("a single newline next to text that renders to no block becomes a blank lin
   const [heading] = rangesOf(source, ["# H"]);
   const result = reconcile(source, [heading], [added("H")]);
   check(result, "[x]: http://x\n\nH\n\n[y]: http://y\n", ["H"]);
+});
+
+test("a block replaced by blank markdown is removed with its blank line", () => {
+  const source = "A\n\nB\n\nC\n";
+  const [a, b, c] = rangesOf(source, ["A", "B", "C"]);
+  check(reconcile(source, [a, b, c], [clean(a), added(""), clean(c)]), "A\n\nC\n", ["A", "C"]);
+  check(reconcile(source, [a, b, c], [added(" \n"), clean(b), clean(c)]), "B\n\nC\n", ["B", "C"]);
+  check(reconcile(source, [a, b, c], [clean(a), clean(b), added("")]), "A\n\nB\n", ["A", "B"]);
+  check(reconcile("B", [{ start: 0, end: 1 }], [added("")]), "", []);
+});
+
+test("the blank lines around new markdown go, the indent of its first line stays", () => {
+  const source = "A\n\nB\n\nC";
+  const [a, b, c] = rangesOf(source, ["A", "B", "C"]);
+  const result = reconcile(source, [a, b, c], [clean(a), added("\n\n    code\n\n"), clean(c)]);
+  check(result, "A\n\n    code\n\nC", ["A", "    code", "C"]);
 });
 
 test("clean children out of source order throw", () => {

@@ -55,10 +55,42 @@ test("a break at the end of a block is dropped", () => {
   assert.equal(toMarkdown("<p>one<br>two</p>", ""), "one\\\ntwo");
 });
 
-test("a no-break space is dropped only at the end of a block", () => {
+test("a no-break space is a space, and a space at the start or end of a block is dropped", () => {
   assert.equal(toMarkdown("<p>end&nbsp;</p>", ""), "end");
   assert.equal(toMarkdown("<p><b>end&nbsp;</b><br></p>", ""), "**end**");
-  assert.equal(toMarkdown("<p>a&nbsp;b</p>", ""), "a\u00a0b");
+  assert.equal(toMarkdown("<p>&nbsp; &nbsp;<i>start</i></p>", ""), "*start*");
+  assert.equal(toMarkdown("<p>a&nbsp; b&nbsp; <code>c&nbsp; d</code></p>", ""), "a  b  `c  d`");
+});
+
+test("an edit in a table writes only the changed row, in the style of the original", () => {
+  const cases = [
+    ["| a | b |\n| --- | --- |\n| **cell** | two |\n| x | y |", "two", "three", "| a | b |\n| --- | --- |\n| **cell** | three |\n| x | y |"],
+    ["|a|  b |\n|--|--|\n| 1 | 2 |\n|3|4|", "2", "5", "|a|  b |\n|--|--|\n| 1 | 5 |\n|3|4|"],
+    ["| Name | Value |\n| ---- | ----: |\n| a    |     1 |\n| bb   |    22 |", "1", "3", "| Name | Value |\n| ---- | ----: |\n| a    |     3 |\n| bb   |    22 |"],
+    ["| Name | Value |\n| ---- | ----: |\n| a    |     1 |\n| bb   |    22 |", "1", "333333", "| Name | Value |\n| ---- | ----: |\n| a    | 333333 |\n| bb   |    22 |"],
+  ];
+  for (const [original, cell, typed, expected] of cases) {
+    const [table] = topLevelHtml(render(original).html);
+    assert.equal(toMarkdown(table.replace(`>${cell}<`, `>${typed}<`), original), expected);
+  }
+});
+
+test("a list keeps its spread: tight with a nested list of two items, loose with a blank line", () => {
+  const nested = "- [ ] a\n  - [ ] b\n  - [x] c\n- [ ] d";
+  const [list] = topLevelHtml(render(nested).html);
+  const toggled = list.replace('<input type="checkbox" disabled>b', '<input type="checkbox" checked disabled>b');
+  assert.equal(toMarkdown(toggled, nested), "- [ ] a\n  - [x] b\n  - [x] c\n- [ ] d");
+  assert.equal(roundTrip("- a\n\n  - b\n  - c\n\n- d"), "- a\n\n  - b\n  - c\n\n- d");
+});
+
+test("a list directly in a list is the nested list of the item before it", () => {
+  assert.equal(toMarkdown("<ul><li>one</li><ul><li>two</li></ul><li>X</li></ul>", "- one\n  - two"), "- one\n  - two\n- X");
+  assert.equal(toMarkdown("<ol><li>one</li><ol><li>two</li></ol></ol>", ""), "1. one\n   1. two");
+});
+
+test("a ! before a footnote reference is not escaped, before a link text it is", () => {
+  const html = '<p>Text!<sup><a href="#user-content-fn-1" data-footnote-ref>1</a></sup> and ![a]</p>';
+  assert.equal(toMarkdown(html, ""), "Text![^1] and !\\[a]");
 });
 
 test("the checked attribute is the state of a task", () => {

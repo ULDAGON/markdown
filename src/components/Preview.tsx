@@ -4,11 +4,14 @@ import { reconcile, type Child } from "@/lib/markdown/reconcile";
 import { render, type BlockRange } from "@/lib/markdown/render";
 import { toMarkdown } from "@/lib/markdown/to-markdown";
 import { selectionAfter, sourceEdit, type ToolId } from "@/lib/source-edits";
-import { isCommand, previewEdit, toolState } from "./preview-commands";
+import { besideLocked, closest, enter, isCommand, previewEdit, toolState } from "./preview-commands";
 import { rangeOf, selectSource, toSource, topLevel } from "./preview-selection";
 import { editRaw } from "./raw-edit";
 import Toolbar, { ask, KEYMAP } from "./Toolbar";
 import { useMermaid } from "./useMermaid";
+
+// A list item marker with a task box, after the indent and the quote markers of its line.
+const TASK_MARKER = /^[ \t>]*(?:[-*+]|\d+[.)])[ \t]+\[([ xX])\]/gm;
 
 type Props = { markdown: string; onChange: (markdown: string) => void; ref?: React.Ref<HTMLElement> };
 
@@ -81,7 +84,7 @@ export default function Preview({ markdown, onChange, ref }: Props) {
         }
         continue;
       }
-      const markdown = toMarkdown(el.outerHTML, range ? source.slice(range.start, range.end) : "");
+      const markdown = el instanceof HTMLTextAreaElement ? el.value : toMarkdown(el.outerHTML, range ? source.slice(range.start, range.end) : "");
       // An empty block, like the paragraph after Enter at the end of one, has no markdown until it gets text.
       // outdent leaves a bare <br> at the top level, which would become a hard break of its own.
       if (!markdown || el instanceof HTMLBRElement) {
@@ -109,9 +112,12 @@ export default function Preview({ markdown, onChange, ref }: Props) {
     live.observer.observe(el, { childList: true, characterData: true, subtree: true });
     const onSelection = () => {
       const selection = getSelection()!;
-      if (!selection.rangeCount || !el.contains(selection.anchorNode)) return;
-      live.saved = selection.getRangeAt(0).cloneRange();
-      setTools(toolState());
+      if (selection.rangeCount && el.contains(selection.anchorNode)) {
+        live.saved = selection.getRangeAt(0).cloneRange();
+        setTools(toolState());
+      } else if (!card.current!.contains(selection.anchorNode)) {
+        live.saved = null; // the caret is in the markdown card now; the toolbar field of this card keeps it
+      }
     };
     document.addEventListener("selectionchange", onSelection);
     return () => {
@@ -133,10 +139,11 @@ export default function Preview({ markdown, onChange, ref }: Props) {
   }
 
   // A toolbar control can hold the focus; put it and the selection back into the article.
-  // False when there is no selection to act on.
+  // False when there is no selection in the preview to act on.
   function restore() {
     const el = article.current!;
     if (document.activeElement === el) return true;
+    if (!live.saved) return false; // the focus stays where it is, as in the markdown card
     el.focus(); // blurs an open raw textarea, which renders again and drops the saved selection
     if (!live.saved) return false;
     getSelection()!.removeAllRanges();
@@ -144,10 +151,13 @@ export default function Preview({ markdown, onChange, ref }: Props) {
     return true;
   }
 
-  // Text right in the article, outside any block, becomes a paragraph. execCommand does nothing while
-  // another one runs, so in the input event of a tool it fails, and run calls it again after the tool.
+  // Text right in the article, outside any block, becomes a paragraph; so does the block that is left when all
+  // text is deleted. execCommand does nothing while another one runs, so in the input event of a tool it fails,
+  // and run calls it again after the tool.
   function wrapLooseText() {
-    if (getSelection()?.anchorNode?.parentNode === article.current) document.execCommand("formatBlock", false, "p");
+    const el = article.current!;
+    const node = getSelection()?.anchorNode;
+    if (node?.parentNode === el && (node instanceof Text || !el.textContent!.trim())) document.execCommand("formatBlock", false, "p");
   }
 
   async function run(id: ToolId, arg?: number) {
@@ -156,7 +166,7 @@ export default function Preview({ markdown, onChange, ref }: Props) {
       return;
     }
     if (id === "link") {
-      const url = await ask(card.current!.querySelector(".toolbar")!, { placeholder: "https://" });
+      const url = await ask(card.current!.querySelector(".toolbar")!, { placeholder: "https://", value: closest("a")?.getAttribute("href") ?? "" });
       if (restore() && url) previewEdit("link", url);
     } else if (restore()) {
       previewEdit(id);
@@ -178,16 +188,17 @@ export default function Preview({ markdown, onChange, ref }: Props) {
     selectSource(el, next, ...selectionAfter(id, text, edit, start, end));
   }
 
-  function editBlock(block: HTMLElement) {
+  function editBlock(rich: HTMLElement) {
+    article.current!.querySelector("textarea")?.blur(); // commits an open raw edit
     sync();
-    const range = rangeOf(block);
-    if (!range) return;
-    // The range comes back with the text: a sync while the textarea is open (a checkbox click) moves the block in the source.
-    editRaw(block, live.source!.slice(range.start, range.end), (text, { start, end }) => {
-      const source = live.source!;
-      const next = text === null ? source : source.slice(0, start) + text + source.slice(end);
-      show(next);
-      if (next !== source) onChange(next);
+    const range = rangeOf(rich);
+    // The commit of a raw edit renders the article again: the clicked block is a new element by then, at the range
+    // that sync gave the old one.
+    const block = range && article.current!.querySelector<HTMLElement>(`:scope > [data-start="${range.start}"]`);
+    if (!block) return;
+    const area = editRaw(block, live.source!.slice(range.start, range.end), (keep) => {
+      if (keep) live.changed.add(area);
+      commit();
     });
     live.observer!.takeRecords();
   }
@@ -223,22 +234,42 @@ export default function Preview({ markdown, onChange, ref }: Props) {
 
   function onKeyDown(e: React.KeyboardEvent<HTMLElement>) {
     if (e.target !== e.currentTarget) return; // keys in the raw textarea of a block
-    const id = (e.metaKey || e.ctrlKey) && !e.altKey ? KEYMAP[e.key.toLowerCase()] : undefined;
-    if (!id) return;
-    e.preventDefault();
-    run(id);
+    const mod = e.metaKey || e.ctrlKey;
+    const id = mod && !e.altKey ? KEYMAP[e.key.toLowerCase()] : undefined;
+    const selection = getSelection()!;
+    if (id) {
+      e.preventDefault();
+      run(id);
+    } else if (mod || e.altKey || !selection.isCollapsed) {
+      return;
+    } else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      if (enter()) e.preventDefault();
+    } else if (e.key === "Backspace" || e.key === "Delete") {
+      const block = topLevel(article.current!, selection.anchorNode!);
+      if (block && besideLocked(block, e.key === "Backspace")) e.preventDefault();
+    }
   }
 
-  // A native click on a checkbox in an editable region does not toggle it.
+  // A native click on a checkbox in an editable region does not toggle it. The click toggles the task marker in
+  // the source instead of the box in the article: toMarkdown would drop the box of an empty item. The k-th box of
+  // a block stands for its k-th task marker, and the toggle keeps the length of the source, so the ranges stay.
   function onMouseDown(e: React.MouseEvent<HTMLElement>) {
-    const box = e.target;
+    const box = e.target as Element;
+    // A press on a rich block leaves an open raw edit to the click, which commits it before it opens the block.
+    if (box.closest("[data-rich]")) return e.preventDefault();
     if (!(box instanceof HTMLInputElement) || box.type !== "checkbox") return;
     const block = topLevel(article.current!, box);
     if (!editable(block)) return;
     e.preventDefault();
+    sync();
+    const source = live.source!;
+    const { start, end } = rangeOf(block)!;
+    const nth = [...block.querySelectorAll("input[type=checkbox]")].indexOf(box);
+    const marker = [...source.slice(start, end).matchAll(TASK_MARKER)][nth];
+    const at = start + marker.index + marker[0].length - 2;
     box.toggleAttribute("checked");
-    live.changed.add(block);
-    edited();
+    live.source = source.slice(0, at) + (marker[1] === " " ? "x" : " ") + source.slice(at + 1);
+    onChange(live.source);
   }
 
   function onClick(e: React.MouseEvent<HTMLElement>) {

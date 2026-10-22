@@ -1,35 +1,34 @@
-import type { BlockRange } from "@/lib/markdown/render";
-
 /**
  * Replace a rich block in place with a textarea of its markdown, which grows with its content.
- * Blur or ⌘enter calls done with the text, esc calls it with null. done is called once, with the source range
- * that the block has by then: Preview keeps the textarea's range current while it is open.
+ * Blur or ⌘enter calls done(true), esc done(false); done is called once. The textarea keeps the source range of the
+ * block, so a sync while it is open keeps the block, and the sync of a commit takes its value as the markdown of the block.
  */
-export function editRaw(block: HTMLElement, markdown: string, done: (markdown: string | null, range: BlockRange) => void) {
+export function editRaw(block: HTMLElement, markdown: string, done: (commit: boolean) => void): HTMLTextAreaElement {
   const area = Object.assign(document.createElement("textarea"), { className: "raw", value: markdown, spellcheck: false });
-  // The textarea keeps the source range of the block, so a sync while it is open keeps the block.
   Object.assign(area.dataset, { start: block.dataset.start, end: block.dataset.end });
+  // scrollHeight leaves out the border, which the height includes (border-box).
   const grow = () => {
     area.style.height = "auto";
-    area.style.height = `${area.scrollHeight}px`;
+    area.style.height = `${area.scrollHeight + area.offsetHeight - area.clientHeight}px`;
   };
   let finished = false;
   // done renders the preview again; the removal of the focused textarea blurs it a second time.
-  const finish = (text: string | null) => {
+  const finish = (commit: boolean) => {
     if (finished) return;
     finished = true;
-    done(text, { start: Number(area.dataset.start), end: Number(area.dataset.end) });
+    done(commit);
   };
   area.addEventListener("input", grow);
-  area.addEventListener("blur", () => finish(area.value));
+  area.addEventListener("blur", () => finish(true));
   area.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") finish(null);
+    if (e.key === "Escape") finish(false);
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      finish(area.value);
+      finish(true);
     }
   });
   block.replaceWith(area);
   grow();
   area.focus();
+  return area;
 }
