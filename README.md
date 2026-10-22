@@ -1,6 +1,11 @@
 # Markdown.
 
-A two-pane markdown preview in the ULDAGON style. Source left, preview right; edit either side. Drop a .md file on a card to open it.
+A two-pane markdown preview. Source left, preview right; edit either side. Drop a .md file on a card to open it.
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-light.png">
+  <img src="docs/screenshot-dark.png" alt="The source of a markdown document on the left, its rendered preview on the right.">
+</picture>
 
 The footer has `clear` on the left and the theme switch on the right.
 
