@@ -11,7 +11,7 @@
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
-  display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; height: 100dvh; margin: 0; overflow: hidden;
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100dvh; margin: 0; overflow: hidden;
   background: var(--c-bg); color: var(--c-text); font: var(--size-ui) / var(--leading-ui) var(--mono);
   -webkit-font-smoothing: antialiased;
   transition: background-color var(--t-theme) ease, color var(--t-theme) ease;
@@ -23,10 +23,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 
 /* ------------------------------------------------------------------ header */
-.top { display: flex; align-items: center; gap: 12px; padding: 14px var(--gutter) 12px; }
+/* The same two columns as .panes, so each half lines up with its pane. */
+.top { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 12px var(--gutter); }
+.top .row { flex-wrap: nowrap; }
+.top .row > :last-child { margin-left: auto; }
+.brand { display: flex; align-items: center; gap: 12px; }
 .mark { flex: none; width: 22px; height: auto; fill: var(--c-accent); }
 .title { margin: 0; font-size: 18px; font-weight: var(--heading-weight); letter-spacing: -.01em; }
-.top .switch { margin-left: auto; }
 
 .switch {
   position: relative; flex: none; width: 30px; height: 16px; padding: 0; border-radius: 999px;
@@ -42,7 +45,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .switch:hover::after { background: var(--c-accent); }
 
 /* ------------------------------------------------------------------ controls */
-.actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 0 var(--gutter) 12px; }
 .btn {
   display: inline-flex; align-items: center; height: var(--control-h); padding: 0 calc(var(--control-pad) + 2px);
   border: 1px solid var(--c-line-strong); background: transparent; cursor: pointer;
@@ -180,7 +182,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   body { height: auto; min-height: 100dvh; overflow: visible; }
   .panes { grid-template-columns: minmax(0, 1fr); }
   .card { height: 70dvh; }
-  .actions .row:last-child { flex: 1 1 100%; flex-wrap: nowrap; }
-  .actions .field { flex: 1; width: auto; }
+  .top { grid-template-columns: minmax(0, 1fr); }
+  .top .field { flex: 1; width: auto; min-width: 0; }
   .status .keys { display: none; }
 }

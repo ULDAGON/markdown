@@ -4,8 +4,10 @@ import { continueList, headingLevel, sourceEdit, type ToolId } from "@/lib/sourc
 import { SAMPLE } from "@/lib/sample";
 import { store } from "@/lib/store";
 import { applyEdit } from "./apply-edit";
+import Brand from "./Brand";
 import Preview from "./Preview";
 import StatusBar from "./StatusBar";
+import ThemeToggle from "./ThemeToggle";
 import Toolbar, { KEYMAP } from "./Toolbar";
 import { useMod } from "./useMod";
 import { useScrollSync } from "./useScrollSync";
@@ -110,8 +112,10 @@ export default function Editor() {
 
   return (
     <>
-      <div className="actions">
+      {/* One line over the two panes: each half holds the controls of the pane below it. */}
+      <header className="top">
         <div className="row">
+          <Brand />
           <button className="btn" onClick={() => { replaceAll(""); say(`cleared. ${mod}z in the source to undo.`); }}>clear</button>
         </div>
         <div className="row">
@@ -125,8 +129,9 @@ export default function Editor() {
             placeholder="untitled.md"
           />
           <button className="btn primary" onClick={download}>download</button>
+          <ThemeToggle />
         </div>
-      </div>
+      </header>
 
       <main
         className="panes"
