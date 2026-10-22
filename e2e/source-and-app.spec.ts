@@ -687,7 +687,6 @@ test.describe("layout at 1440x900", () => {
     await expect(sourceArea(page)).toHaveValue(/^# Hello/);
     const box = async (locator: Locator) => (await locator.boundingBox())!;
     const clear = await box(page.getByRole("button", { name: "clear", exact: true }));
-    const debug = await box(page.getByRole("button", { name: "debug", exact: true }));
     const toggle = await box(page.getByRole("switch"));
     const stats = await box(statusNumbers(page));
     const source = await box(region(page, "markdown"));
@@ -699,11 +698,12 @@ test.describe("layout at 1440x900", () => {
     // Clear at the bottom left, the theme at the bottom right, both lined up with the cards.
     expect(Math.abs(clear.x - source.x)).toBeLessThanOrEqual(1);
     expect(Math.abs(toggle.x + toggle.width - (preview.x + preview.width))).toBeLessThanOrEqual(1);
-    const centres = [clear, stats, debug, toggle].map((b) => b.y + b.height / 2);
+    const centres = [clear, stats, toggle].map((b) => b.y + b.height / 2);
     expect(Math.max(...centres) - Math.min(...centres)).toBeLessThanOrEqual(3);
     expect(clear.y).toBeGreaterThanOrEqual(source.y + source.height);
     expect(clear.x + clear.width).toBeLessThanOrEqual(stats.x);
-    expect(debug.x + debug.width).toBeLessThanOrEqual(toggle.x);
+    expect(stats.x + stats.width).toBeLessThanOrEqual(toggle.x);
+    await expect(page.getByRole("button", { name: "debug" })).toHaveCount(0);
     expect(toggle.y + toggle.height).toBeLessThanOrEqual(900);
   });
 });
@@ -724,7 +724,7 @@ test.describe("layout at 390x844", () => {
 
     // Everything the user touches lies inside the viewport, and no two of them overlap.
     const parts = await page.evaluate(() => {
-      const picks = ["footer.status .btn", "footer.status .num", "footer.status .link", "footer.status .switch"];
+      const picks = ["footer.status .btn", "footer.status .num", "footer.status .switch"];
       const toolbars = [...document.querySelectorAll(".toolbar")].flatMap((bar, i) => [...bar.children].map((child, j) => ({ name: `toolbar ${i} child ${j}`, el: child })));
       const named = picks.map((selector) => ({ name: selector, el: document.querySelector(selector)! }));
       return [...named, ...toolbars].map(({ name, el }) => {

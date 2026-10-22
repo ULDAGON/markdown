@@ -15,7 +15,7 @@ world. type on the left, read on the right. edit either side; the other follows.
 | --- | --- |
 | ⌘/ctrl b | bold |
 | ⌘/ctrl i | italic |
-| ⌘/ctrl . | debug panel |
+| ⌘/ctrl k | link |
 
 \`\`\`js
 const answer = 42;

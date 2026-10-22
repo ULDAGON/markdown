@@ -4,11 +4,9 @@ import { continueList, headingLevel, sourceEdit, type ToolId } from "@/lib/sourc
 import { SAMPLE } from "@/lib/sample";
 import { store } from "@/lib/store";
 import { applyEdit } from "./apply-edit";
-import DebugPanel from "./DebugPanel";
 import Footer from "./Footer";
 import Preview from "./Preview";
 import Toolbar, { KEYMAP } from "./Toolbar";
-import { useDebug } from "./useDebug";
 import { useMod } from "./useMod";
 import { useScrollSync } from "./useScrollSync";
 
@@ -19,8 +17,6 @@ export default function Editor() {
   const [caret, setCaret] = useState(0);
   const [note, setNote] = useState<string | null>(null);
   const [dropping, setDropping] = useState(false);
-  const [debugging, setDebugging] = useState(false);
-  const debug = useDebug();
   const source = useRef<HTMLTextAreaElement>(null);
   const preview = useRef<HTMLElement>(null);
   const noteTimer = useRef(0);
@@ -84,16 +80,6 @@ export default function Editor() {
     say(`cleared. ${mod}z in the source to undo.`);
   }
 
-  // ⌘. opens and closes the debug panel from anywhere on the page.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key !== ".") return;
-      e.preventDefault();
-      setDebugging((open) => !open);
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
 
   const hasFile = (e: React.DragEvent) => e.dataTransfer.types.includes("Files");
 
@@ -128,8 +114,7 @@ export default function Editor() {
         <Preview markdown={text} onChange={change} ref={preview} />
       </main>
 
-      <Footer text={text} note={note} onClear={clear} onDebug={() => setDebugging((open) => !open)} />
-      {debugging && <DebugPanel debug={debug} onClose={() => setDebugging(false)} say={say} />}
+      <Footer text={text} note={note} onClear={clear} />
     </>
   );
 }

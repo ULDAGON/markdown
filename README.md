@@ -2,7 +2,7 @@
 
 A two-pane markdown preview in the ULDAGON style. Source left, preview right; edit either side. Drop a .md file on a card to open it.
 
-The footer has `clear` on the left and the theme switch on the right. `debug` in the footer, or ⌘. (ctrl+. elsewhere), opens a panel that changes spacing, shape, buttons, type, colours, grain and motion live. It keeps the values in localStorage; `copy css` gives the changed values as CSS for the code.
+The footer has `clear` on the left and the theme switch on the right.
 
 ```sh
 npm install
@@ -19,9 +19,8 @@ Next.js (App Router), React and TypeScript. The tokens in `src/styles/uldagon.cs
 |---|---|
 | `src/app/` | layout (fonts, theme script), page, global styles |
 | `src/components/Editor.tsx` | state, file drop, clear, keys, scroll sync between the two cards |
-| `src/components/Footer.tsx` | clear, the status line, the key hints or a note, the debug link, the theme switch |
-| `src/components/DebugPanel.tsx`, `useDebug.ts` | the debug panel, and its values on `<html>` |
-| `src/lib/debug-controls.ts` | the settings of the debug panel: each one a CSS property or a data attribute that `globals.css` reads |
+| `src/components/Footer.tsx` | clear, the status line, a note, the theme switch |
+| `src/components/Select.tsx` | the themed dropdown of the heading picker |
 | `src/components/Toolbar.tsx` | the one tool list both cards share, and the inline field for a URL or TeX |
 | `src/components/Preview.tsx` | the rendered card; its tools make the source edits of the markdown card |
 | `src/components/preview-selection.ts` | a selection in the preview as a selection of the source, and back |

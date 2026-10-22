@@ -22,7 +22,7 @@ export default function Select({ label, tip, options, value, onChange }: Props) 
     const close = (e: PointerEvent) => root.current?.contains(e.target as Node) || setOpen(false);
     const escape = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      e.stopPropagation(); // Escape closes the list, not the panel around it
+      e.stopPropagation(); // Escape closes the list only: not also an open raw edit or the link field
       setOpen(false);
     };
     document.addEventListener("pointerdown", close);
