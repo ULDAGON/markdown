@@ -1,8 +1,9 @@
 import { useCallback, useEffect, type RefObject } from "react";
 
 // Keyed by theme and source, so a render of the preview does not draw an unchanged diagram again.
-const drawn = new Map<string, string>();
+let drawn = new Map<string, string>();
 let count = 0;
+let latest = 0; // the number of the newest draw
 
 function themeVariables() {
   const css = getComputedStyle(document.documentElement);
@@ -22,36 +23,47 @@ function themeVariables() {
     primaryColor: colour("--c-bg"),
     primaryTextColor: colour("--c-text"),
     primaryBorderColor: colour("--c-accent"),
-    lineColor: colour("--c-line"),
+    lineColor: colour("--c-text-dim"),
     textColor: colour("--c-text"),
     fontFamily: token("--mono"),
   };
 }
 
 async function drawAll(root: HTMLElement) {
+  const mine = ++latest;
   const diagrams = [...root.querySelectorAll<HTMLElement>(".diagram")];
-  if (!diagrams.length) return;
-  const { default: mermaid } = await import("mermaid");
-  const theme = document.documentElement.dataset.theme;
-  mermaid.initialize({ startOnLoad: false, theme: "base", themeVariables: themeVariables() });
-  for (const diagram of diagrams) {
-    const pre = diagram.querySelector("pre")!;
-    const key = `${theme}\n${pre.textContent}`;
-    let svg = drawn.get(key);
-    if (svg === undefined) {
-      try {
-        // parse throws on an error; render alone would leave its error drawing in the page.
-        await mermaid.parse(pre.textContent!);
-        svg = (await mermaid.render(`diagram-${++count}`, pre.textContent!)).svg;
-        drawn.set(key, svg);
-      } catch {
-        svg = "";
+  const used = new Map<string, string>();
+  if (diagrams.length) {
+    const { default: mermaid } = await import("mermaid");
+    // initialize is global, so a draw that another one overtook at an await must stop: it would render or cache with the wrong theme.
+    if (mine !== latest) return;
+    const theme = document.documentElement.dataset.theme;
+    mermaid.initialize({ startOnLoad: false, theme: "base", securityLevel: "strict", themeVariables: themeVariables() });
+    for (const diagram of diagrams) {
+      const pre = diagram.querySelector("pre");
+      if (!pre) continue;
+      const key = `${theme}\n${pre.textContent}`;
+      let svg = drawn.get(key);
+      if (svg === undefined) {
+        try {
+          // parse throws on an error; render alone would leave its error drawing in the page.
+          await mermaid.parse(pre.textContent!);
+          if (mine !== latest) return;
+          svg = (await mermaid.render(`diagram-${++count}`, pre.textContent!)).svg;
+          if (mine !== latest) return;
+          drawn.set(key, svg);
+        } catch {
+          if (mine !== latest) return;
+          svg = "";
+        }
       }
+      used.set(key, svg);
+      pre.hidden = svg !== "";
+      diagram.querySelector(":scope > :not(pre)")?.remove();
+      diagram.insertAdjacentHTML("beforeend", svg || "<small>diagram error.</small>");
     }
-    pre.hidden = svg !== "";
-    diagram.querySelector(":scope > :not(pre)")?.remove();
-    diagram.insertAdjacentHTML("beforeend", svg || "<small>diagram error.</small>");
   }
+  drawn = used;
 }
 
 /** Draw the diagrams of the article with Mermaid in the colours of the theme, and again when the theme changes. */

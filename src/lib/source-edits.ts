@@ -44,7 +44,9 @@ function wrap(marker: string, placeholder: string, value: string, s: number, e: 
 // Apply fn to every line the selection touches.
 function lines(value: string, s: number, e: number, fn: (lines: string[]) => string[]): Edit {
   const start = lineStart(value, s);
-  const newline = value.indexOf("\n", e);
+  // A selection that ends right after a line break does not touch the next line.
+  const last = e > s && value[e - 1] === "\n" ? e - 1 : e;
+  const newline = value.indexOf("\n", last);
   const end = newline === -1 ? value.length : newline;
   const text = fn(value.slice(start, end).split("\n")).join("\n");
   return edit(start, end, text, s === e ? text.length : 0);
@@ -74,8 +76,7 @@ function link(value: string, s: number, e: number): Edit {
 }
 
 /** The edit for a tool. `arg` is the heading level (0 clears the heading). */
-export function sourceEdit(id: ToolId, value: string, selStart: number, selEnd: number, arg = 0): Edit {
-  const [s, e] = [selStart, selEnd];
+export function sourceEdit(id: ToolId, value: string, s: number, e: number, arg = 0): Edit {
   switch (id) {
     case "bold": return wrap("**", "bold", value, s, e);
     case "italic": return wrap("_", "italic", value, s, e);
@@ -99,7 +100,9 @@ export function continueList(value: string, caret: number): Edit | null {
   const line = value.slice(start, caret);
   const m = line.match(/^(\s*)(> |[-*+] \[[ xX]\] |[-*+] |(\d+)([.)]) )/);
   if (!m) return null;
-  if (line.length === m[0].length) return edit(start, caret, "", 0, 0);
+  // Only a line that is nothing but the marker ends the list; Enter after the marker of an item with text splits it.
+  const newline = value.indexOf("\n", caret);
+  if ((newline === -1 ? value.length : newline) - start === m[0].length) return edit(start, caret, "", 0, 0);
   const next = m[3] ? `${m[1]}${Number(m[3]) + 1}${m[4]} ` : m[1] + m[2].replace(/\[[xX]\]/, "[ ]");
   return edit(caret, caret, "\n" + next);
 }

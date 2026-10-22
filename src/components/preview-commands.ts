@@ -24,6 +24,28 @@ function toggleCode() {
   exec("insertText", code.textContent ?? "");
 }
 
+const TASK_ITEM = "li:has(> input[type=checkbox])";
+
+// Remove the checkbox, with the space after it, of each task item that the selection touches.
+function removeTasks() {
+  const selection = getSelection()!;
+  const range = selection.getRangeAt(0);
+  const root = closest('[contenteditable="true"]') ?? document;
+  const boxes = [...root.querySelectorAll(TASK_ITEM)]
+    .filter((item) => range.intersectsNode(item))
+    .map((item) => item.querySelector(":scope > input[type=checkbox]")!);
+  for (const box of boxes) {
+    const gap = document.createRange();
+    gap.setStartBefore(box);
+    const next = box.nextSibling;
+    if (next?.nodeType === Node.TEXT_NODE && next.textContent?.startsWith(" ")) gap.setEnd(next, 1);
+    else gap.setEndAfter(box);
+    selection.removeAllRanges();
+    selection.addRange(gap);
+    exec("delete"); // as an editing command, so it fires the input event that schedules the sync
+  }
+}
+
 /** Run a tool. The heading tool takes the level (0 for text), the link tool the URL. */
 export function previewEdit(id: ToolId, arg?: number | string) {
   switch (id) {
@@ -35,7 +57,7 @@ export function previewEdit(id: ToolId, arg?: number | string) {
     case "quote": return closest("blockquote") ? exec("outdent") : exec("formatBlock", "blockquote");
     case "ul": return exec("insertUnorderedList");
     case "ol": return exec("insertOrderedList");
-    case "task": return exec("insertHTML", `<ul><li><input type="checkbox"> ${escape(selected() || "task")}</li></ul>`);
+    case "task": return closest(TASK_ITEM) ? removeTasks() : exec("insertHTML", `<ul><li><input type="checkbox"> ${escape(selected() || "task")}</li></ul>`);
     case "link": {
       const url = String(arg);
       return selected() ? exec("createLink", url) : exec("insertHTML", `<a href="${escape(url)}">${escape(url)}</a>`);
@@ -49,7 +71,7 @@ export function previewEdit(id: ToolId, arg?: number | string) {
 /** The pressed tools and the heading level at the selection. */
 export function toolState(): { heading: number; pressed: Partial<Record<ToolId, boolean>> } {
   const heading = closest("h1, h2, h3, h4, h5, h6");
-  const task = !!closest("li:has(> input[type=checkbox])");
+  const task = !!closest(TASK_ITEM);
   return {
     heading: heading ? Number(heading.tagName[1]) : 0,
     pressed: {

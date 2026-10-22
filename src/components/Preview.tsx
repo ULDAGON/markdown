@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useImperativeHandle, useRef, useState } from "react";
 import { reconcile, type Child } from "@/lib/markdown/reconcile";
-import { render, type Range as Block } from "@/lib/markdown/render";
+import { render, type BlockRange } from "@/lib/markdown/render";
 import { toMarkdown } from "@/lib/markdown/to-markdown";
 import type { ToolId } from "@/lib/source-edits";
 import { previewEdit, toolState } from "./preview-commands";
@@ -11,7 +11,7 @@ import { useMermaid } from "./useMermaid";
 
 type Props = { markdown: string; onChange: (markdown: string) => void; ref?: React.Ref<HTMLElement> };
 
-const rangeOf = (el: HTMLElement): Block | undefined =>
+const rangeOf = (el: HTMLElement): BlockRange | undefined =>
   el.dataset.start === undefined ? undefined : { start: Number(el.dataset.start), end: Number(el.dataset.end) };
 
 /**
@@ -23,13 +23,13 @@ export default function Preview({ markdown, onChange, ref }: Props) {
   const article = useRef<HTMLElement>(null);
   const live = useRef({
     source: null as string | null, // the text that the article shows
-    rendered: [] as Block[], // the ranges that the blocks of the article had at the last sync
+    rendered: [] as BlockRange[], // the ranges that the blocks of the article had at the last sync
     changed: new Set<Element>(),
     edited: false, // the article differs from a fresh render of source
     saved: null as Range | null, // the last selection in the article, for the toolbar controls that take the focus
     timer: 0,
+    observer: null as MutationObserver | null,
   }).current;
-  const observer = useRef<MutationObserver>(null);
   const [tools, setTools] = useState<ReturnType<typeof toolState>>({ heading: 0, pressed: {} });
   const drawDiagrams = useMermaid(article);
 
@@ -39,9 +39,10 @@ export default function Preview({ markdown, onChange, ref }: Props) {
     const el = article.current!;
     const { html, blocks } = render(text);
     el.innerHTML = html;
-    // A checkbox is disabled in the rendered HTML; in the preview a click toggles it.
-    el.querySelectorAll("input[type=checkbox]").forEach((box) => box.removeAttribute("disabled"));
-    observer.current!.takeRecords();
+    // A checkbox is disabled in the rendered HTML; in the preview a click toggles it. Only the task items of
+    // a block with a source range can: a checkbox in raw HTML or in the footnotes would turn that into markdown.
+    el.querySelectorAll(":scope > [data-start]:not([data-rich]) li.task-list-item > input[type=checkbox]").forEach((box) => box.removeAttribute("disabled"));
+    live.observer!.takeRecords();
     Object.assign(live, { source: text, rendered: blocks, changed: new Set(), edited: false, saved: null });
     clearTimeout(live.timer);
     drawDiagrams();
@@ -52,18 +53,22 @@ export default function Preview({ markdown, onChange, ref }: Props) {
     return node.parentNode && node instanceof HTMLElement ? node : null;
   }
 
+  // The footnotes section and the rich blocks are not editable here. The footnotes have no range, so a
+  // change in them would make sync turn the generated section into a new block of the source.
+  const editable = (block: HTMLElement | null): block is HTMLElement => !!block && block.getAttribute("contenteditable") !== "false";
+
   function mark(records: MutationRecord[]) {
     for (const { target, addedNodes } of records) {
       for (const node of target === article.current ? addedNodes : [target]) {
         const block = topLevel(node);
-        if (block && !(node instanceof Element ? node : node.parentElement)?.closest("[data-rich]")) live.changed.add(block);
+        if (editable(block)) live.changed.add(block);
       }
     }
   }
 
   function sync() {
     clearTimeout(live.timer);
-    mark(observer.current!.takeRecords());
+    mark(live.observer!.takeRecords());
     const source = live.source!;
     const synced: HTMLElement[] = [];
     const children: Child[] = [];
@@ -86,7 +91,7 @@ export default function Preview({ markdown, onChange, ref }: Props) {
         continue;
       }
       synced.push(el);
-      children.push({ range, markdown });
+      children.push({ markdown });
     }
     const { text, ranges } = reconcile(source, live.rendered, children);
     synced.forEach((el, i) => {
@@ -99,8 +104,8 @@ export default function Preview({ markdown, onChange, ref }: Props) {
 
   useEffect(() => {
     const el = article.current!;
-    observer.current = new MutationObserver(mark);
-    observer.current.observe(el, { childList: true, characterData: true, subtree: true });
+    live.observer = new MutationObserver(mark);
+    live.observer.observe(el, { childList: true, characterData: true, subtree: true });
     const onSelection = () => {
       const selection = getSelection()!;
       if (!selection.rangeCount || !el.contains(selection.anchorNode)) return;
@@ -109,7 +114,7 @@ export default function Preview({ markdown, onChange, ref }: Props) {
     };
     document.addEventListener("selectionchange", onSelection);
     return () => {
-      observer.current!.disconnect();
+      live.observer!.disconnect();
       document.removeEventListener("selectionchange", onSelection);
       clearTimeout(live.timer);
     };
@@ -156,25 +161,29 @@ export default function Preview({ markdown, onChange, ref }: Props) {
 
   function editBlock(block: HTMLElement) {
     sync();
-    const { start, end } = rangeOf(block)!;
-    editRaw(block, live.source!.slice(start, end), (text) => {
+    const range = rangeOf(block);
+    if (!range) return;
+    // The range comes back with the text: a sync while the textarea is open (a checkbox click) moves the block in the source.
+    editRaw(block, live.source!.slice(range.start, range.end), (text, { start, end }) => {
       const source = live.source!;
       const next = text === null ? source : source.slice(0, start) + text + source.slice(end);
       show(next);
       if (next !== source) onChange(next);
     });
-    observer.current!.takeRecords();
+    live.observer!.takeRecords();
   }
 
   async function editMath(math: Element) {
+    if (!editable(topLevel(math))) return;
     const tex = math.querySelector('annotation[encoding="application/x-tex"]')!;
     const next = await ask(card.current!.querySelector(".toolbar")!, { placeholder: "tex", value: tex.textContent! });
     if (next === null || next === tex.textContent) return;
     tex.textContent = next;
-    normalise();
+    commit();
   }
 
-  function normalise() {
+  // Write the edits to the source and render the article again from it.
+  function commit() {
     sync();
     show(live.source!);
   }
@@ -183,7 +192,7 @@ export default function Preview({ markdown, onChange, ref }: Props) {
   // focuses the article again; so look where the focus is once it has moved.
   function onBlur() {
     setTimeout(() => {
-      if (live.edited && !card.current!.contains(document.activeElement)) normalise();
+      if (live.edited && !card.current!.contains(document.activeElement)) commit();
     });
   }
 
@@ -194,6 +203,7 @@ export default function Preview({ markdown, onChange, ref }: Props) {
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLElement>) {
+    if (e.target !== e.currentTarget) return; // keys in the raw textarea of a block
     const id = (e.metaKey || e.ctrlKey) && !e.altKey ? KEYMAP[e.key.toLowerCase()] : undefined;
     if (!id) return;
     e.preventDefault();
@@ -204,9 +214,11 @@ export default function Preview({ markdown, onChange, ref }: Props) {
   function onMouseDown(e: React.MouseEvent<HTMLElement>) {
     const box = e.target;
     if (!(box instanceof HTMLInputElement) || box.type !== "checkbox") return;
+    const block = topLevel(box);
+    if (!editable(block)) return;
     e.preventDefault();
     box.toggleAttribute("checked");
-    live.changed.add(topLevel(box)!);
+    live.changed.add(block);
     edited();
   }
 

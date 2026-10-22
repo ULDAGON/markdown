@@ -55,6 +55,11 @@ test("list kinds toggle on and off", () => {
   assert.equal(run("quote", "> a\n> b", 0, 7).text, "a\nb");
 });
 
+test("a selection that ends at a line start does not touch the next line", () => {
+  assert.equal(run("quote", "a\nb\nc", 0, 2).text, "> a\nb\nc");
+  assert.equal(run("heading", "a\nb", 0, 2, 1).text, "# a\nb");
+});
+
 test("a list kind replaces another kind", () => {
   assert.equal(run("ol", "- a\n- b", 0, 7).text, "1. a\n2. b");
   assert.equal(run("ul", "- [ ] a", 0).text, "- a");
@@ -118,6 +123,15 @@ test("continueList opens an unchecked task after a checked one", () => {
 test("continueList ends the list on an empty item", () => {
   assert.deepEqual(continueList("- a\n- ", 6), { start: 4, end: 6, text: "", select: [0, 0] });
   assert.deepEqual(continueList("1. ", 3), { start: 0, end: 3, text: "", select: [0, 0] });
+});
+
+test("continueList splits an item when the caret is right after the marker", () => {
+  assert.deepEqual(apply("- foo", continueList("- foo", 2)!).text, "- \n- foo");
+  assert.deepEqual(apply("- a\n- foo\n- b", continueList("- a\n- foo\n- b", 6)!).text, "- a\n- \n- foo\n- b");
+});
+
+test("continueList ends the list on an empty item that is not the last line", () => {
+  assert.deepEqual(continueList("- a\n- \nb", 6), { start: 4, end: 6, text: "", select: [0, 0] });
 });
 
 test("continueList returns null outside a list", () => {

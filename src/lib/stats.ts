@@ -10,7 +10,7 @@ function size(bytes: number) {
 export function stats(text: string): string {
   const words = text.trim() ? text.trim().split(/\s+/).length : 0;
   return [
-    `${count.format(text.length)} characters`,
+    `${count.format(text.length)} ${text.length === 1 ? "character" : "characters"}`,
     size(new TextEncoder().encode(text).length),
     words ? `${Math.ceil(words / 200)} min read` : "— read",
   ].join(" · ");

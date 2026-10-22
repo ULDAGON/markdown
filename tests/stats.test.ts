@@ -13,7 +13,7 @@ test("stats groups characters and rounds the reading time up", () => {
 });
 
 test("stats counts bytes, not characters", () => {
-  assert.equal(stats("ä"), "1 characters · 2 b · 1 min read");
+  assert.equal(stats("ä"), "1 character · 2 b · 1 min read");
 });
 
 test("stats shows megabytes", () => {

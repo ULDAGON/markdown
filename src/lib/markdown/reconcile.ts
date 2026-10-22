@@ -1,6 +1,6 @@
-import type { Range } from "./render.ts";
+import type { BlockRange } from "./render.ts";
 
-export type Child = { range?: Range; markdown?: string };
+export type Child = { range: BlockRange } | { markdown: string };
 
 const BLANK_LINE = "\n\n";
 
@@ -10,11 +10,11 @@ const BLANK_LINE = "\n\n";
  */
 export function reconcile(
   source: string,
-  rendered: Range[],
+  rendered: BlockRange[],
   children: Child[],
-): { text: string; ranges: Range[] } {
+): { text: string; ranges: BlockRange[] } {
   let text = "";
-  const ranges: Range[] = [];
+  const ranges: BlockRange[] = [];
   let hunkStart = 0;
   let afterKeptBlock = false;
   let edited: string[] = [];
@@ -52,14 +52,12 @@ export function reconcile(
   };
 
   for (const child of children) {
-    if (child.markdown !== undefined) {
+    if ("markdown" in child) {
       edited.push(child.markdown);
       continue;
     }
     const kept = child.range;
-    if (!kept || kept.start < hunkStart) {
-      throw new Error("reconcile: each clean child needs a range, and clean children must be in source order");
-    }
+    if (kept.start < hunkStart) throw new Error("reconcile: clean children must be in source order");
     writeHunk(kept.start, true);
     ranges.push({ start: text.length, end: text.length + kept.end - kept.start });
     text += source.slice(kept.start, kept.end);

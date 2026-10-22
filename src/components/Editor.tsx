@@ -2,17 +2,14 @@
 import { useEffect, useRef, useState } from "react";
 import { continueList, headingLevel, sourceEdit, type ToolId } from "@/lib/source-edits";
 import { SAMPLE } from "@/lib/sample";
-import { applyEdit } from "./applyEdit";
+import { store } from "@/lib/store";
+import { applyEdit } from "./apply-edit";
 import Preview from "./Preview";
 import StatusBar from "./StatusBar";
 import Toolbar, { KEYMAP } from "./Toolbar";
 import { useMod } from "./useMod";
 import { useScrollSync } from "./useScrollSync";
 
-const store = {
-  get(key: string) { try { return localStorage.getItem(key); } catch { return null; } },
-  set(key: string, value: string) { try { localStorage.setItem(key, value); } catch {} },
-};
 const normalise = (text: string) => text.replace(/\r\n/g, "\n");
 
 export default function Editor() {
@@ -24,6 +21,7 @@ export default function Editor() {
   const source = useRef<HTMLTextAreaElement>(null);
   const preview = useRef<HTMLElement>(null);
   const noteTimer = useRef(0);
+  const unsaved = useRef(false); // the storage refused the text, and the user knows
   const mod = useMod();
 
   useScrollSync(source, preview);
@@ -42,7 +40,9 @@ export default function Editor() {
 
   function change(next: string) {
     setText(next);
-    store.set("md.text", next);
+    const kept = store.set("md.text", next);
+    if (!kept && !unsaved.current) say("not saved: the browser storage is full. download to keep it.");
+    unsaved.current = !kept;
   }
 
   function rename(next: string) {

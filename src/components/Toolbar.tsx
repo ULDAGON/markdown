@@ -29,7 +29,9 @@ const GROUPS: (Tool[] | "heading")[] = [
 ];
 
 /** The tools with a key, for ⌘ or ctrl and the key in either card. */
-export const KEYMAP: Record<string, ToolId> = { b: "bold", i: "italic", k: "link" };
+export const KEYMAP: Record<string, ToolId> = Object.fromEntries(
+  GROUPS.flat().flatMap((tool) => (typeof tool === "string" || !tool.key ? [] : [[tool.key, tool.id]])),
+);
 
 const HEADINGS = ["text", "h1", "h2", "h3", "h4", "h5", "h6"];
 

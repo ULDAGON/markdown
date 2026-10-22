@@ -1,8 +1,11 @@
+import type { BlockRange } from "@/lib/markdown/render";
+
 /**
  * Replace a rich block in place with a textarea of its markdown, which grows with its content.
- * Blur or ⌘enter calls done with the text, esc calls it with null. done is called once.
+ * Blur or ⌘enter calls done with the text, esc calls it with null. done is called once, with the source range
+ * that the block has by then: Preview keeps the textarea's range current while it is open.
  */
-export function editRaw(block: HTMLElement, markdown: string, done: (markdown: string | null) => void) {
+export function editRaw(block: HTMLElement, markdown: string, done: (markdown: string | null, range: BlockRange) => void) {
   const area = Object.assign(document.createElement("textarea"), { className: "raw", value: markdown, spellcheck: false });
   // The textarea keeps the source range of the block, so a sync while it is open keeps the block.
   Object.assign(area.dataset, { start: block.dataset.start, end: block.dataset.end });
@@ -15,7 +18,7 @@ export function editRaw(block: HTMLElement, markdown: string, done: (markdown: s
   const finish = (text: string | null) => {
     if (finished) return;
     finished = true;
-    done(text);
+    done(text, { start: Number(area.dataset.start), end: Number(area.dataset.end) });
   };
   area.addEventListener("input", grow);
   area.addEventListener("blur", () => finish(area.value));

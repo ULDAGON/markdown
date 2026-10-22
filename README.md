@@ -17,6 +17,7 @@ Next.js (App Router), React and TypeScript. The tokens in `src/styles/uldagon.cs
 | `src/components/Toolbar.tsx` | the one tool list both cards share, and the inline field for a URL or TeX |
 | `src/components/Preview.tsx` | the rendered card |
 | `src/lib/source-edits.ts` | markdown edits on the source as pure functions |
+| `src/lib/store.ts` | localStorage that never throws; `set` says whether the value was kept |
 | `src/lib/stats.ts` | the status line: characters, size, reading time |
 | `src/lib/markdown/` | markdown to HTML and back |
 | `tests/` | `npm test` |
