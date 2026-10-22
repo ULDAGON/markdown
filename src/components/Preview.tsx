@@ -3,16 +3,14 @@ import { useEffect, useImperativeHandle, useRef, useState } from "react";
 import { reconcile, type Child } from "@/lib/markdown/reconcile";
 import { render, type BlockRange } from "@/lib/markdown/render";
 import { toMarkdown } from "@/lib/markdown/to-markdown";
-import type { ToolId } from "@/lib/source-edits";
-import { previewEdit, toolState } from "./preview-commands";
+import { selectionAfter, sourceEdit, type ToolId } from "@/lib/source-edits";
+import { isCommand, previewEdit, toolState } from "./preview-commands";
+import { rangeOf, selectSource, toSource, topLevel } from "./preview-selection";
 import { editRaw } from "./raw-edit";
 import Toolbar, { ask, KEYMAP } from "./Toolbar";
 import { useMermaid } from "./useMermaid";
 
 type Props = { markdown: string; onChange: (markdown: string) => void; ref?: React.Ref<HTMLElement> };
-
-const rangeOf = (el: HTMLElement): BlockRange | undefined =>
-  el.dataset.start === undefined ? undefined : { start: Number(el.dataset.start), end: Number(el.dataset.end) };
 
 /**
  * The rendered card. The article holds its own DOM, not React: an edit there changes only its block in the source.
@@ -41,16 +39,16 @@ export default function Preview({ markdown, onChange, ref }: Props) {
     el.innerHTML = html;
     // A checkbox is disabled in the rendered HTML; in the preview a click toggles it. Only the task items of
     // a block with a source range can: a checkbox in raw HTML or in the footnotes would turn that into markdown.
-    el.querySelectorAll(":scope > [data-start]:not([data-rich]) li.task-list-item > input[type=checkbox]").forEach((box) => box.removeAttribute("disabled"));
+    el.querySelectorAll(":scope > [data-start]:not([data-rich]) :is(li.task-list-item, li.task-list-item > p) > input[type=checkbox]").forEach((box) => box.removeAttribute("disabled"));
+    // The caret cannot go into an empty block, as the heading that a tool makes on an empty line; a <br> gives it a line.
+    el.querySelectorAll(":scope > :is(h1, h2, h3, h4, h5, h6, blockquote), li").forEach((block) => {
+      const empty = !block.textContent!.trim() && [...block.children].every((child) => child instanceof HTMLInputElement);
+      if (empty) block.append(document.createElement("br"));
+    });
     live.observer!.takeRecords();
     Object.assign(live, { source: text, rendered: blocks, changed: new Set(), edited: false, saved: null });
     clearTimeout(live.timer);
     drawDiagrams();
-  }
-
-  function topLevel(node: Node): HTMLElement | null {
-    while (node.parentNode && node.parentNode !== article.current) node = node.parentNode;
-    return node.parentNode && node instanceof HTMLElement ? node : null;
   }
 
   // The footnotes section and the rich blocks are not editable here. The footnotes have no range, so a
@@ -60,7 +58,7 @@ export default function Preview({ markdown, onChange, ref }: Props) {
   function mark(records: MutationRecord[]) {
     for (const { target, addedNodes } of records) {
       for (const node of target === article.current ? addedNodes : [target]) {
-        const block = topLevel(node);
+        const block = topLevel(article.current!, node);
         if (editable(block)) live.changed.add(block);
       }
     }
@@ -88,6 +86,9 @@ export default function Preview({ markdown, onChange, ref }: Props) {
       // outdent leaves a bare <br> at the top level, which would become a hard break of its own.
       if (!markdown || el instanceof HTMLBRElement) {
         empty.add(el);
+        // Enter copies the range of a block to the block that it splits off; an empty block has no source.
+        delete el.dataset.start;
+        delete el.dataset.end;
         continue;
       }
       synced.push(el);
@@ -150,13 +151,31 @@ export default function Preview({ markdown, onChange, ref }: Props) {
   }
 
   async function run(id: ToolId, arg?: number) {
+    if (!isCommand(id)) {
+      if (restore()) editSource(id, arg);
+      return;
+    }
     if (id === "link") {
       const url = await ask(card.current!.querySelector(".toolbar")!, { placeholder: "https://" });
       if (restore() && url) previewEdit("link", url);
     } else if (restore()) {
-      previewEdit(id, arg);
+      previewEdit(id);
     }
     wrapLooseText();
+  }
+
+  // The tool makes the edit of the markdown card on the same source text, so both cards give the same markdown.
+  function editSource(id: ToolId, arg?: number) {
+    sync();
+    const el = article.current!;
+    const source = live.source!;
+    // Inline code wraps the text itself; a block tool takes the syntax at the edges of a block with it.
+    const { text, start, end } = toSource(el, source, getSelection()!.getRangeAt(0), id !== "code");
+    const edit = sourceEdit(id, text, start, end, arg);
+    const next = text.slice(0, edit.start) + edit.text + text.slice(edit.end);
+    show(next);
+    if (next !== source) onChange(next);
+    selectSource(el, next, ...selectionAfter(id, text, edit, start, end));
   }
 
   function editBlock(block: HTMLElement) {
@@ -174,7 +193,7 @@ export default function Preview({ markdown, onChange, ref }: Props) {
   }
 
   async function editMath(math: Element) {
-    if (!editable(topLevel(math))) return;
+    if (!editable(topLevel(article.current!, math))) return;
     const tex = math.querySelector('annotation[encoding="application/x-tex"]')!;
     const next = await ask(card.current!.querySelector(".toolbar")!, { placeholder: "tex", value: tex.textContent! });
     if (next === null || next === tex.textContent) return;
@@ -214,7 +233,7 @@ export default function Preview({ markdown, onChange, ref }: Props) {
   function onMouseDown(e: React.MouseEvent<HTMLElement>) {
     const box = e.target;
     if (!(box instanceof HTMLInputElement) || box.type !== "checkbox") return;
-    const block = topLevel(box);
+    const block = topLevel(article.current!, box);
     if (!editable(block)) return;
     e.preventDefault();
     box.toggleAttribute("checked");

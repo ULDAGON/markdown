@@ -29,6 +29,11 @@ const edit = (start: number, end: number, text: string, from = text.length, to =
 // lastIndexOf with a negative start still looks at index 0, so the first line needs its own case.
 const lineStart = (value: string, index: number) => (index === 0 ? 0 : value.lastIndexOf("\n", index - 1) + 1);
 
+function lineEnd(value: string, index: number) {
+  const newline = value.indexOf("\n", index);
+  return newline === -1 ? value.length : newline;
+}
+
 function wrap(marker: string, placeholder: string, value: string, s: number, e: number): Edit {
   const m = marker.length;
   const sel = value.slice(s, e);
@@ -41,22 +46,32 @@ function wrap(marker: string, placeholder: string, value: string, s: number, e: 
   return edit(s, e, marker + inner + marker, m, m + inner.length);
 }
 
-// Apply fn to every line the selection touches.
-function lines(value: string, s: number, e: number, fn: (lines: string[]) => string[]): Edit {
+// Apply fn to every line the selection touches. around holds the line before and the line after them.
+function lines(value: string, s: number, e: number, fn: (lines: string[], around: string[]) => string[]): Edit {
   const start = lineStart(value, s);
   // A selection that ends right after a line break does not touch the next line.
-  const last = e > s && value[e - 1] === "\n" ? e - 1 : e;
-  const newline = value.indexOf("\n", last);
-  const end = newline === -1 ? value.length : newline;
-  const text = fn(value.slice(start, end).split("\n")).join("\n");
+  const end = lineEnd(value, e > s && value[e - 1] === "\n" ? e - 1 : e);
+  const around = [start ? value.slice(lineStart(value, start - 1), start - 1) : "", value.slice(end + 1, lineEnd(value, end + 1))];
+  const text = fn(value.slice(start, end).split("\n"), around).join("\n");
   return edit(start, end, text, s === e ? text.length : 0);
 }
 
 function prefix(kind: keyof typeof PREFIX, value: string, s: number, e: number): Edit {
   const { test, make, keep } = PREFIX[kind];
-  return lines(value, s, e, (ls) => {
-    const all = ls.every((l) => test.test(l));
-    return ls.map((l, i) => (all ? l.replace(test, "") : make(i) + (keep ? l : l.replace(LIST, "$1"))));
+  return lines(value, s, e, (ls, around) => {
+    // An empty list item renders its marker as text, so a list leaves out the blank lines between selected lines.
+    const skip = (l: string) => !keep && !l.trim() && ls.some((other) => other.trim());
+    const all = ls.every((l) => skip(l) || test.test(l));
+    // A task inside a list stays in it as a bullet: as a plain line it would join the item before it.
+    const off = kind === "task" && around.some((l) => LIST.test(l)) ? /\[[ xX]\] / : test;
+    let item = 0;
+    return ls.map((l) => {
+      if (skip(l)) return l;
+      if (all) return l.replace(off, "");
+      const marker = make(item++);
+      // A list marker replaces the marker that the line has, after its indent.
+      return keep ? marker + l : l.replace(LIST, "$1").replace(/^\s*/, `$&${marker}`);
+    });
   });
 }
 
@@ -94,6 +109,27 @@ export function sourceEdit(id: ToolId, value: string, s: number, e: number, arg 
   }
 }
 
+const LINE_TOOLS = new Set<ToolId>(["heading", "quote", "ul", "ol", "task"]);
+
+/**
+ * The selection s..e of value after the edit of a tool, on the same text. A line tool keeps each end at its
+ * distance to the end of its line; any other tool selects what it selects in the markdown card.
+ */
+export function selectionAfter(id: ToolId, value: string, edit: Edit, s: number, e: number): [number, number] {
+  if (!LINE_TOOLS.has(id)) return [edit.start + edit.select[0], edit.start + edit.select[1]];
+  const before = value.slice(edit.start, edit.end).split("\n");
+  const after = edit.text.split("\n");
+  const follow = (offset: number) => {
+    const head = value.slice(edit.start, offset).split("\n");
+    const row = head.length - 1;
+    const [from, to] = [before[row], after[row]];
+    let kept = 0; // the end of the line that the edit keeps
+    while (kept < Math.min(from.length, to.length) && from.at(-1 - kept) === to.at(-1 - kept)) kept++;
+    return edit.start + after.slice(0, row + 1).join("\n").length - Math.min(from.length - head[row].length, kept);
+  };
+  return [follow(s), follow(e)];
+}
+
 /** Enter inside a list starts the next item; Enter on an empty item ends the list. Null: not in a list. */
 export function continueList(value: string, caret: number): Edit | null {
   const start = lineStart(value, caret);
@@ -101,8 +137,7 @@ export function continueList(value: string, caret: number): Edit | null {
   const m = line.match(/^(\s*)(> |[-*+] \[[ xX]\] |[-*+] |(\d+)([.)]) )/);
   if (!m) return null;
   // Only a line that is nothing but the marker ends the list; Enter after the marker of an item with text splits it.
-  const newline = value.indexOf("\n", caret);
-  if ((newline === -1 ? value.length : newline) - start === m[0].length) return edit(start, caret, "", 0, 0);
+  if (lineEnd(value, caret) - start === m[0].length) return edit(start, caret, "", 0, 0);
   const next = m[3] ? `${m[1]}${Number(m[3]) + 1}${m[4]} ` : m[1] + m[2].replace(/\[[xX]\]/, "[ ]");
   return edit(caret, caret, "\n" + next);
 }

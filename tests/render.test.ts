@@ -156,3 +156,13 @@ test("inline math is not editable", () => {
   const katex = find(paragraph, (node) => hasClass(node, "katex"))!;
   assert.equal(katex.properties.contentEditable, "false");
 });
+
+test("the text of a task item starts right after its checkbox", () => {
+  assert.match(render("- [ ] tight").html, /<li class="task-list-item"><input type="checkbox" disabled>tight<\/li>/);
+  assert.match(render("- [x] loose\n\n- [ ] b").html, /<p><input type="checkbox" checked disabled>loose<\/p>/);
+});
+
+test("a list item of only a checkbox is an empty task item; an escaped one is text", () => {
+  assert.match(render("- [ ] ").html, /<li class="task-list-item"><input type="checkbox" disabled><\/li>/);
+  assert.match(render("- \\[ ]").html, /<li>\[ \]<\/li>/);
+});

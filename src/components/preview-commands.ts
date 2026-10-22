@@ -1,8 +1,7 @@
 import type { ToolId } from "@/lib/source-edits";
 
-// The toolbar tools as rich edits on the selection in the preview. The caller puts the selection there first.
+// Rich-text commands on the selection in the preview. The caller puts the selection there first.
 
-const TABLE = "<table><thead><tr><th>column</th><th>column</th></tr></thead><tbody><tr><td>cell</td><td>cell</td></tr></tbody></table><p><br></p>";
 const escape = (text: string) => text.replace(/[&<>"]/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot" }[c]};`);
 
 const exec = (command: string, arg?: string) => document.execCommand(command, false, arg);
@@ -14,57 +13,22 @@ function closest(selector: string): Element | null {
   return element?.closest(selector) ?? null;
 }
 
-function toggleCode() {
-  const code = closest(":not(pre) > code");
-  if (!code) return exec("insertHTML", `<code>${escape(selected() || "code")}</code>`);
-  const range = document.createRange();
-  range.selectNode(code);
-  getSelection()!.removeAllRanges();
-  getSelection()!.addRange(range);
-  exec("insertText", code.textContent ?? "");
-}
+// A task item of a loose list holds its checkbox in its first paragraph.
+const TASK_ITEM = "li:has(> input[type=checkbox], > p:first-child > input[type=checkbox])";
 
-const TASK_ITEM = "li:has(> input[type=checkbox])";
+const COMMANDS = ["bold", "italic", "strike", "link"] as const;
+export type CommandTool = (typeof COMMANDS)[number];
 
-// Remove the checkbox, with the space after it, of each task item that the selection touches.
-function removeTasks() {
-  const selection = getSelection()!;
-  const range = selection.getRangeAt(0);
-  const root = closest('[contenteditable="true"]') ?? document;
-  const boxes = [...root.querySelectorAll(TASK_ITEM)]
-    .filter((item) => range.intersectsNode(item))
-    .map((item) => item.querySelector(":scope > input[type=checkbox]")!);
-  for (const box of boxes) {
-    const gap = document.createRange();
-    gap.setStartBefore(box);
-    const next = box.nextSibling;
-    if (next?.nodeType === Node.TEXT_NODE && next.textContent?.startsWith(" ")) gap.setEnd(next, 1);
-    else gap.setEndAfter(box);
-    selection.removeAllRanges();
-    selection.addRange(gap);
-    exec("delete"); // as an editing command, so it fires the input event that schedules the sync
-  }
-}
+/** These tools run as rich-text commands; the other tools edit the source (Preview). */
+export const isCommand = (id: ToolId): id is CommandTool => (COMMANDS as readonly ToolId[]).includes(id);
 
-/** Run a tool. The heading tool takes the level (0 for text), the link tool the URL. */
-export function previewEdit(id: ToolId, arg?: number | string) {
+/** Run a rich-text command. The link tool takes the URL. */
+export function previewEdit(id: CommandTool, url = "") {
   switch (id) {
     case "bold": return exec("bold");
     case "italic": return exec("italic");
     case "strike": return exec("strikeThrough");
-    case "code": return toggleCode();
-    case "heading": return exec("formatBlock", arg ? `h${arg}` : "p");
-    case "quote": return closest("blockquote") ? exec("outdent") : exec("formatBlock", "blockquote");
-    case "ul": return exec("insertUnorderedList");
-    case "ol": return exec("insertOrderedList");
-    case "task": return closest(TASK_ITEM) ? removeTasks() : exec("insertHTML", `<ul><li><input type="checkbox"> ${escape(selected() || "task")}</li></ul>`);
-    case "link": {
-      const url = String(arg);
-      return selected() ? exec("createLink", url) : exec("insertHTML", `<a href="${escape(url)}">${escape(url)}</a>`);
-    }
-    case "codeblock": return exec("formatBlock", "pre");
-    case "table": return exec("insertHTML", TABLE);
-    case "hr": return exec("insertHorizontalRule");
+    case "link": return selected() ? exec("createLink", url) : exec("insertHTML", `<a href="${escape(url)}">${escape(url)}</a>`);
   }
 }
 

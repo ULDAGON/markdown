@@ -23,6 +23,7 @@ const toHast = unified()
   .use(remarkParse)
   .use(remarkGfm)
   .use(remarkMath)
+  .use(emptyTaskItems)
   .use(remarkRehype, { allowDangerousHtml: true, clobberPrefix: "" })
   .use(rehypeRaw)
   .use(rehypeSanitize)
@@ -38,6 +39,7 @@ const toHtml = unified()
   })
   .use(rehypeKatex)
   .use(lockRichContent)
+  .use(trimTaskSpace)
   .use(rehypeHighlight)
   .use(rehypeStringify);
 
@@ -189,6 +191,33 @@ function lockRichContent(): Transformer<Root> {
       if (dataRich === undefined && dataFootnotes === undefined && !hasClass(node, "katex")) return;
       node.properties.contentEditable = "false";
       return SKIP;
+    });
+  };
+}
+
+/** The checkbox of a task item stands in the list gutter (globals.css); a space after it would indent the first line. */
+function trimTaskSpace(): Transformer<Root> {
+  return (tree: Root) => {
+    visit(tree, "element", (node) => {
+      const [box, text] = node.children;
+      if (box?.type === "element" && box.tagName === "input" && text?.type === "text") text.value = text.value.replace(/^ /, "");
+    });
+  };
+}
+
+/**
+ * GFM shows a list item of only `[ ]` as that text. Here it is an empty task item, as the task tool makes it on an
+ * empty line, so the text typed after its checkbox makes a task. An escaped `\[ ]` stays text.
+ */
+function emptyTaskItems(): Transformer<MdastRoot> {
+  return (tree, file) => {
+    visit(tree, "listItem", (item) => {
+      const [paragraph] = item.children;
+      if (item.checked != null || item.children.length !== 1 || paragraph.type !== "paragraph") return;
+      const box = String(file.value).slice(paragraph.position!.start.offset, paragraph.position!.end.offset).match(/^\[([ xX])\]\s*$/);
+      if (!box) return;
+      item.checked = box[1] !== " ";
+      item.children = [];
     });
   };
 }

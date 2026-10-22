@@ -122,9 +122,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .prose ul { list-style: "– "; }
 .prose ul li::marker { color: var(--c-text-dim); }
 .prose ol li::marker { color: var(--c-accent-text); font-family: var(--mono); font-size: .9em; }
-.prose li:has(> input[type=checkbox]) { list-style: none; margin-left: -1.5em; }
+/* A task item puts its checkbox where the bullet would be: the text keeps the indent of the list, and middle centres the box on the x-height. */
+.prose li:has(> input[type=checkbox], > p:first-child > input[type=checkbox]) { list-style: none; }
 .prose input[type=checkbox] {
-  appearance: none; display: inline-grid; place-content: center; width: 12px; height: 12px; margin: 0 8px 0 0; vertical-align: -1px;
+  appearance: none; display: inline-grid; place-content: center; width: 12px; height: 12px; margin: 0 8px 0 -20px; vertical-align: middle;
   border: 1px solid var(--c-line-strong); cursor: pointer;
 }
 .prose input[type=checkbox]::after { content: ""; width: 4px; height: 4px; background: var(--c-accent-ink); visibility: hidden; }

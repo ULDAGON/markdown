@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { continueList, headingLevel, sourceEdit, type Edit } from "../src/lib/source-edits.ts";
+import { continueList, headingLevel, selectionAfter, sourceEdit, type Edit } from "../src/lib/source-edits.ts";
 
 // Apply an edit the way the textarea does, and report the text and the selected part.
 function apply(value: string, edit: Edit) {
@@ -53,6 +53,41 @@ test("list kinds toggle on and off", () => {
   assert.equal(run("task", "- [x] a", 0).text, "a");
   assert.equal(run("quote", "a\nb", 0, 3).text, "> a\n> b");
   assert.equal(run("quote", "> a\n> b", 0, 7).text, "a\nb");
+});
+
+test("a list leaves out the blank lines between selected lines", () => {
+  assert.equal(run("task", "a\n\nb", 0, 4).text, "- [ ] a\n\n- [ ] b");
+  assert.equal(run("task", "- [ ] a\n\n- [ ] b", 0, 16).text, "a\n\nb");
+  assert.equal(run("ol", "a\n\nb", 0, 4).text, "1. a\n\n2. b");
+  assert.equal(run("ul", "", 0).text, "- ");
+  assert.equal(run("quote", "a\n\nb", 0, 4).text, "> a\n> \n> b");
+});
+
+test("a task inside a list turns back into a bullet, a task on its own into a line", () => {
+  assert.equal(run("task", "- a\n- b\n- c", 6).text, "- a\n- [ ] b\n- c");
+  assert.equal(run("task", "- a\n- [ ] b\n- c", 6).text, "- a\n- b\n- c");
+  assert.equal(run("task", "- [ ] a\n- b", 0).text, "- a\n- b");
+  assert.equal(run("task", "- a\n  - [x] b", 8).text, "- a\n  - b");
+  assert.equal(run("task", "- a\n  - b", 8).text, "- a\n  - [ ] b");
+  assert.equal(run("task", "x\n\n- [ ] a\n- [ ] b\n\ny", 3, 16).text, "x\n\na\nb\n\ny");
+});
+
+test("selectionAfter keeps a line edit on the same text", () => {
+  const after = (value: string, s: number, e: number, id: Parameters<typeof sourceEdit>[0] = "task") => {
+    const edit = sourceEdit(id, value, s, e, 1);
+    const [from, to] = selectionAfter(id, value, edit, s, e);
+    const text = apply(value, edit).text;
+    return text.slice(0, from) + "|" + text.slice(from, to) + (to > from ? "|" : "") + text.slice(to);
+  };
+  assert.equal(after("test", 2, 2), "- [ ] te|st");
+  assert.equal(after("- [ ] test", 2, 2), "|test");
+  assert.equal(after("a\nbc", 0, 3, "ol"), "1. |a\n2. b|c");
+  assert.equal(after("title", 5, 5, "heading"), "# title|");
+});
+
+test("selectionAfter takes the selection of any other tool from its edit", () => {
+  assert.deepEqual(selectionAfter("codeblock", "x", sourceEdit("codeblock", "x", 0, 1), 0, 1), [4, 5]);
+  assert.deepEqual(selectionAfter("code", "x", sourceEdit("code", "x", 0, 1), 0, 1), [1, 2]);
 });
 
 test("a selection that ends at a line start does not touch the next line", () => {
