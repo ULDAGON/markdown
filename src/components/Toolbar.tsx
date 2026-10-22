@@ -28,6 +28,9 @@ const GROUPS: (Tool[] | "heading")[] = [
   ],
 ];
 
+/** The tools with a key, for ⌘ or ctrl and the key in either card. */
+export const KEYMAP: Record<string, ToolId> = { b: "bold", i: "italic", k: "link" };
+
 const HEADINGS = ["text", "h1", "h2", "h3", "h4", "h5", "h6"];
 
 type Props = {
@@ -77,18 +80,25 @@ export default function Toolbar({ label, onRun, heading, pressed }: Props) {
   );
 }
 
-/** The toolbar turns into one field for a URL. Resolves to the URL, or null on esc. */
-export function askUrl(toolbar: HTMLElement): Promise<string | null> {
+/** The toolbar turns into one field. Resolves to the text of the field, or null on esc. */
+export function ask(toolbar: HTMLElement, { placeholder, value = "" }: { placeholder: string; value?: string }): Promise<string | null> {
   return new Promise((resolve) => {
     const form = Object.assign(document.createElement("form"), { className: "ask" });
-    const input = Object.assign(document.createElement("input"), { className: "field", placeholder: "https://", spellcheck: false });
+    const input = Object.assign(document.createElement("input"), { className: "field", placeholder, value, spellcheck: false });
     form.append(input, Object.assign(document.createElement("span"), { textContent: "enter · esc" }));
-    // Resolve before the removal, which blurs the field and would resolve null.
-    const done = (url: string | null) => { resolve(url); form.remove(); };
+    // The removal blurs the field, which calls done a second time.
+    let open = true;
+    const done = (text: string | null) => {
+      if (!open) return;
+      open = false;
+      resolve(text);
+      form.remove();
+    };
     form.addEventListener("submit", (e) => { e.preventDefault(); done(input.value.trim() || null); });
     input.addEventListener("keydown", (e) => { if (e.key === "Escape") done(null); });
     input.addEventListener("blur", () => done(null));
     toolbar.append(form);
     input.focus();
+    input.select();
   });
 }

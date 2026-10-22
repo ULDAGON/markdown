@@ -5,7 +5,7 @@ import { SAMPLE } from "@/lib/sample";
 import { applyEdit } from "./applyEdit";
 import Preview from "./Preview";
 import StatusBar from "./StatusBar";
-import Toolbar from "./Toolbar";
+import Toolbar, { KEYMAP } from "./Toolbar";
 import { useMod } from "./useMod";
 import { useScrollSync } from "./useScrollSync";
 
@@ -14,7 +14,6 @@ const store = {
   set(key: string, value: string) { try { localStorage.setItem(key, value); } catch {} },
 };
 const normalise = (text: string) => text.replace(/\r\n/g, "\n");
-const KEYMAP: Record<string, ToolId> = { b: "bold", i: "italic", k: "link" };
 
 export default function Editor() {
   const [text, setText] = useState("");

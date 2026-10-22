@@ -149,8 +149,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .prose .hljs-deletion { color: var(--c-text-dim); text-decoration: line-through; }
 
 /* Diagrams, maths, anchors, footnotes. */
-.prose .diagram { display: flex; justify-content: center; margin: 0 0 12px; overflow-x: auto; }
+.prose .diagram { display: flex; flex-direction: column; align-items: center; margin: 0 0 12px; overflow-x: auto; }
 .prose .diagram svg { max-width: 100%; height: auto; }
+.prose .diagram > pre { align-self: stretch; }
+.prose .diagram small { align-self: flex-start; color: var(--c-text-dim); font: var(--size-small) var(--mono); }
 .prose .katex-display { overflow-x: auto; overflow-y: hidden; }
 .prose .anchor { margin-left: .5em; font-family: var(--mono); font-size: .7em; color: var(--c-text-dim); text-decoration: none; opacity: 0; }
 .prose :is(h1, h2, h3, h4, h5, h6):hover .anchor, .prose .anchor:focus-visible { opacity: 1; }
@@ -162,6 +164,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* A rendered block that opens its raw markdown on click. */
 .prose [data-rich] { cursor: pointer; }
 .prose [data-rich]:hover { outline: 1px solid var(--c-accent); outline-offset: 4px; }
+.prose .raw {
+  display: block; width: 100%; margin: 0 0 12px; padding: 12px 14px; overflow: hidden; resize: none;
+  font: var(--size-ui) / 1.6 var(--mono); background: var(--c-bg); border: 1px solid var(--c-accent); outline: 0;
+  caret-color: var(--c-accent-text);
+}
 
 /* ------------------------------------------------------------------ status */
 .status { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 8px var(--gutter) 10px; font-size: var(--size-small); color: var(--c-text-dim); }
