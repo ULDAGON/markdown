@@ -1,0 +1,53 @@
+/*
+ * ULDAGON design tokens. The one source of truth for every ULDAGON surface.
+ * Dark (yellow) is the default; [data-theme=light] (purple) overrides the few base values,
+ * and everything derived from them (dim text, hairlines, surfaces, ramps) follows through color-mix().
+ * There is no radius token: every corner is square. Only circles are round: toggle, radio, status dot.
+ * Load JetBrains Mono (assets/fonts) before this file.
+ */
+
+:root, [data-theme] {
+  --c-bg: #0f131a; --c-text: #d4d4d4; --c-accent: #fffb53; --c-accent-ink: #0f131a; --c-bad: #ff3d6e;
+  --muted-a: 58%; --line-a: 14%; --card-a: 1.8%; --card-hover-a: 4.5%;
+  --c-text-dim: color-mix(in srgb, var(--c-text) var(--muted-a), transparent);
+  --c-line: color-mix(in srgb, var(--c-text) var(--line-a), transparent);
+  --c-line-strong: color-mix(in srgb, var(--c-text) 32%, transparent);
+  --c-surface: color-mix(in srgb, #fff var(--card-a), var(--c-bg));
+  --c-surface-hover: color-mix(in srgb, #fff var(--card-hover-a), var(--c-bg));
+  --c-surface-2: color-mix(in srgb, var(--c-text) 6%, var(--c-bg));
+  --c-veil: color-mix(in srgb, var(--c-bg) 82%, transparent);
+  --c-wash: color-mix(in srgb, var(--c-accent) 12%, transparent);
+  /* The accent where it is text or a focus ring. Fills stay on --c-accent; the light lilac is too
+     pale for text (2.51:1), so text mixes it with the text colour (#645480, 5.92:1). */
+  --c-accent-text: var(--c-accent);
+
+  /* One-hue data ramp: accent mixed into surface-2. Series differ by dash pattern, never by hue. */
+  --ramp-0: var(--c-surface-2);
+  --ramp-1: color-mix(in srgb, var(--c-accent) 25%, var(--c-surface-2));
+  --ramp-2: color-mix(in srgb, var(--c-accent) 50%, var(--c-surface-2));
+  --ramp-3: color-mix(in srgb, var(--c-accent) 75%, var(--c-surface-2));
+  --ramp-4: var(--c-accent);
+
+  /* Brand plate for the logo and app icons: the dark base values, fixed so tiles stay dark in light mode. Not a UI colour. */
+  --brand-navy: #0f131a; --brand-yellow: #fffb53;
+
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --size-label: 11px; --size-small: 12px; --size-ui: 13px; --size-text: 15px; --leading-ui: 1.3; --leading-text: 1.75;
+  --h1-size: 36px; --h2-size: 24px; --h3-size: 20px; --heading-weight: 400; --label-track: .1em;
+  --link-thick: 2px; --link-offset: 3px; --card-pad: 15px;
+  --control-h: 26px; --control-pad: 8px; /* one height for buttons, fields and dropdowns */
+  --column: 48rem; --gutter: 1.25rem;
+  --t-fast: .15s; --t-theme: .2s; --t-bar: .25s;
+  color-scheme: dark;
+}
+
+[data-theme=light] {
+  --c-bg: #e9f1fd; --c-text: #000; --c-accent: #a78cd6; --c-bad: #c4123f;
+  --muted-a: 55%; --line-a: 16%; --card-a: 38%; --card-hover-a: 70%;
+  --c-accent-text: color-mix(in srgb, var(--c-accent) 60%, var(--c-text));
+  color-scheme: light;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast: 0s; --t-theme: 0s; --t-bar: 0s; }
+}
