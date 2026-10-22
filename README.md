@@ -13,7 +13,9 @@ npm run e2e     # end-to-end tests in Chromium
 
 `npm run e2e` runs Playwright against http://localhost:4410. It uses a dev server that already runs there, or starts `npm run dev`. The tests import `test`, `expect` and the helpers from `e2e/helpers.ts`: a test fails on any console error or page error. A failed run writes its details to `test-results/`.
 
-Next.js (App Router), React and TypeScript. The tokens in `src/styles/uldagon.css` and the fonts in `src/fonts/` come from [ULDAGON/uldagon-design](https://github.com/ULDAGON/uldagon-design).
+Next.js (App Router), React and TypeScript. The tokens in `src/styles/uldagon.css` come from the ULDAGON design system.
+
+The code is under the MIT license (`LICENSE`). The JetBrains Mono fonts in `src/fonts/` are under the SIL Open Font License 1.1 (`src/fonts/OFL.txt`).
 
 | file | what |
 |---|---|
