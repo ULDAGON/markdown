@@ -111,7 +111,8 @@ function mark(id: Mark, value: string, s: number, e: number): Edit {
       return inside(a) !== inside(b) || syntax(a) || syntax(b);
     };
     for (let span = spans.find(cuts); span; span = spans.find(cuts)) [a, b] = [Math.min(a, span.start), Math.max(b, span.end)];
-    const text = strip(a, b, own(spans).filter((span) => a <= span.start && span.end <= b)) || id;
+    // At a caret only the markers go in, with the caret between them: no placeholder word to type over.
+    const text = strip(a, b, own(spans).filter((span) => a <= span.start && span.end <= b));
     let [open, close] = [marker, marker];
     if (id === "code") {
       // A code span needs a longer run of backticks than it holds, and a space next to a backtick at an end.
@@ -262,9 +263,10 @@ function block(value: string, s: number, e: number, make: (selected: string) => 
 
 function link(value: string, s: number, e: number): Edit {
   const sel = value.slice(s, e);
-  if (/^https?:\/\/\S+$/.test(sel)) return edit(s, e, `[text](${sel})`, 1, 5);
-  const text = sel || "text";
-  return edit(s, e, `[${text}](https://)`, text.length + 3, text.length + 11);
+  if (/^https?:\/\/\S+$/.test(sel)) return edit(s, e, `[](${sel})`, 1, 1);
+  // A caret goes between the brackets for the text; a selection is the text, and the URL is selected to type over.
+  if (!sel) return edit(s, e, "[](https://)", 1, 1);
+  return edit(s, e, `[${sel}](https://)`, sel.length + 3, sel.length + 11);
 }
 
 /** The edit for a tool. `arg` is the heading level (0 clears the heading). */
@@ -280,7 +282,7 @@ export function sourceEdit(id: ToolId, value: string, s: number, e: number, arg 
     case "ol":
     case "task": return list(id, value, s, e);
     case "link": return link(value, s, e);
-    case "codeblock": return block(value, s, e, (sel) => ({ text: "```\n" + (sel || "code") + "\n```", from: 4, to: 4 + (sel || "code").length }));
+    case "codeblock": return block(value, s, e, (sel) => ({ text: "```\n" + sel + "\n```", from: 4, to: 4 + sel.length }));
     case "table": return block(value, s, e, () => ({ text: TABLE, from: 2, to: 8 }));
     case "hr": return block(value, s, e, () => ({ text: "---", from: 3, to: 3 }));
   }

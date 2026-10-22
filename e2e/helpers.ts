@@ -113,7 +113,8 @@ export async function clickTool(page: Page, name: Card, label: string) {
 
 /** Pick a heading level in a card; 0 is text. */
 export async function pickHeading(page: Page, name: Card, level: number) {
-  await card(page, name).getByLabel("heading").selectOption(String(level));
+  await card(page, name).getByRole("combobox", { name: "heading" }).click();
+  await card(page, name).getByRole("option", { name: ["text", "h1", "h2", "h3", "h4", "h5", "h6"][level], exact: true }).click();
 }
 
 /** Wait until an edit typed in the preview is in the source. */

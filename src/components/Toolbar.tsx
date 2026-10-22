@@ -1,6 +1,7 @@
 "use client";
 import { Fragment } from "react";
 import type { ToolId } from "@/lib/source-edits";
+import Select from "./Select";
 import { useMod } from "./useMod";
 
 type Tool = { id: ToolId; label: string; title: string; key?: string; cls?: string };
@@ -33,7 +34,7 @@ export const KEYMAP: Record<string, ToolId> = Object.fromEntries(
   GROUPS.flat().flatMap((tool) => (typeof tool === "string" || !tool.key ? [] : [[tool.key, tool.id]])),
 );
 
-const HEADINGS = ["text", "h1", "h2", "h3", "h4", "h5", "h6"];
+const HEADINGS = ["text", "h1", "h2", "h3", "h4", "h5", "h6"].map((label, level) => ({ label, value: String(level) }));
 
 type Props = {
   label: string;
@@ -51,20 +52,14 @@ export default function Toolbar({ label, onRun, heading, pressed }: Props) {
         <Fragment key={i}>
           {i > 0 && <span className="sep" />}
           {group === "heading" ? (
-            <span className="pick">
-              <select aria-label="heading" title="heading" value={heading} onChange={(e) => onRun("heading", Number(e.target.value))}>
-                {HEADINGS.map((name, level) => (
-                  <option key={name} value={level}>{name}</option>
-                ))}
-              </select>
-            </span>
+            <Select label="heading" tip="heading" options={HEADINGS} value={String(heading)} onChange={(level) => onRun("heading", Number(level))} />
           ) : (
             group.map((tool) => (
               <button
                 key={tool.id}
                 type="button"
                 className={`tool ${tool.cls ?? ""}`}
-                title={tool.key ? `${tool.title} · ${mod}${tool.key}` : tool.title}
+                data-tip={tool.key ? `${tool.title} · ${mod}${tool.key}` : tool.title}
                 aria-label={tool.title}
                 aria-pressed={pressed?.[tool.id]}
                 // Keep the caret and the selection where they are.

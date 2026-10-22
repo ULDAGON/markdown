@@ -46,8 +46,15 @@ export function hasClass(node: Element, name: string): boolean {
 export function toMarkdown(html: string, original: string): string {
   const mdast = toMdast(fromHtml(html, { fragment: true }), { handlers, newlines: true }) as Root;
   // Chrome types U+00A0 for a space that would collapse. A no-break space of the source makes its block rich (render.ts).
+  // The preview holds a caret in a new, empty code span on a U+200B (markAtCaret), which is no text either.
   visit(mdast, (node) => {
-    if ("value" in node) node.value = node.value.replaceAll("\u00a0", " ");
+    if ("value" in node) node.value = node.value.replaceAll("\u00a0", " ").replaceAll("\u200b", "");
+  });
+  // A mark that got no text, as an empty code span that the caret left, would write its bare markers.
+  visit(mdast, ["inlineCode", "strong", "emphasis", "delete"] as const, (node, index, parent) => {
+    if (node.type === "inlineCode" ? node.value : node.children.length) return;
+    parent!.children.splice(index!, 1);
+    return index;
   });
   visit(mdast, ["paragraph", "heading", "tableCell"] as const, trimBlock);
   visit(mdast, "listItem", keepEmptyTaskBox);

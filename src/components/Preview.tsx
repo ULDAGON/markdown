@@ -4,13 +4,14 @@ import { reconcile, type Child } from "@/lib/markdown/reconcile";
 import { render, type BlockRange } from "@/lib/markdown/render";
 import { toMarkdown } from "@/lib/markdown/to-markdown";
 import { selectionAfter, sourceEdit, type ToolId } from "@/lib/source-edits";
-import { besideLocked, closest, enter, link, toolState } from "./preview-commands";
+import { besideLocked, closest, enter, link, markAtCaret, toolState } from "./preview-commands";
 import { rangeOf, selectSource, toSource, topLevel } from "./preview-selection";
 import { editRaw } from "./raw-edit";
 import Toolbar, { ask, KEYMAP } from "./Toolbar";
 import { useMermaid } from "./useMermaid";
 
-const MARKS = new Set<ToolId>(["bold", "italic", "strike", "code"]);
+const MARKS = ["bold", "italic", "strike", "code"] as const;
+const isMark = (id: ToolId): id is (typeof MARKS)[number] => (MARKS as readonly ToolId[]).includes(id);
 
 type Props = { markdown: string; onChange: (markdown: string) => void; ref?: React.Ref<HTMLElement> };
 
@@ -203,8 +204,9 @@ export default function Preview({ markdown, onChange, ref }: Props) {
     const selection = getSelection()!.getRangeAt(0);
     // A caret in a raw-text block has no text to map: the block is edited in its raw editor, not with the tools.
     if (selection.collapsed && topLevel(el, selection.startContainer)?.isContentEditable === false) return;
+    if (isMark(id) && selection.collapsed && !toolState().pressed[id]) return markAtCaret(id);
     // A mark wraps the text itself; a block tool takes the syntax at the edges of a block with it.
-    const { text, start, end } = toSource(el, source, selection, !MARKS.has(id));
+    const { text, start, end } = toSource(el, source, selection, !isMark(id));
     const edit = sourceEdit(id, text, start, end, arg);
     const next = text.slice(0, edit.start) + edit.text + text.slice(edit.end);
     show(next);

@@ -7,6 +7,11 @@ const control = (page: Page, label: string) => panel(page).getByLabel(label, { e
 const html = (page: Page) => page.locator("html");
 /** Open a closed group of the panel, as a click on its title does. */
 const group = (page: Page, title: string) => panel(page).locator("summary", { hasText: new RegExp(`^${title}$`) }).click();
+/** Pick an option of a select of the panel by its label, as a user does. */
+async function choose(page: Page, label: string, option: string) {
+  await control(page, label).click();
+  await panel(page).getByRole("option", { name: option, exact: true }).click();
+}
 const cssVar = (page: Page, name: string) => page.evaluate((name) => document.documentElement.style.getPropertyValue(name), name);
 
 async function openPanel(page: Page) {
@@ -31,9 +36,11 @@ test("the shortcut and the footer link open the panel; the shortcut, close and E
 
 test("the controls show the values of the stylesheet", async ({ page }) => {
   await openPanel(page);
-  await expect(control(page, "page padding value")).toHaveValue("20");
+  await expect(control(page, "page padding value")).toHaveValue("10");
   await expect(control(page, "card border value")).toHaveValue("1");
-  await expect(control(page, "button style")).toHaveValue("ghost");
+  await expect(control(page, "hairline strength value")).toHaveValue("10");
+  await expect(control(page, "button style")).toHaveAttribute("data-value", "solid");
+  await expect(control(page, "hover")).toHaveAttribute("data-value", "tint");
   await expect(panel(page)).toContainText("0 changed");
 });
 
@@ -51,11 +58,11 @@ test("a range sets its property on the page, is kept after a reload, and applies
 
 test("a select sets its data attribute, and the buttons take its style", async ({ page }) => {
   await openPanel(page);
-  await control(page, "button style").selectOption("outline");
+  await choose(page, "button style", "outline");
   await expect(html(page)).toHaveAttribute("data-tool-style", "outline");
   const tool = page.getByRole("region", { name: "markdown", exact: true }).getByRole("button", { name: "bold" });
   expect(await tool.evaluate((el) => getComputedStyle(el).borderTopColor)).not.toBe("rgba(0, 0, 0, 0)");
-  await control(page, "separators").selectOption("off");
+  await choose(page, "separators", "off");
   await expect(page.locator(".toolbar .sep").first()).toBeHidden();
 });
 
@@ -94,26 +101,26 @@ test("copy css gives the changed values as css and says so", async ({ page }) =>
     navigator.clipboard.writeText = async (text: string) => void ((window as any).copied = text);
   });
   await control(page, "card radius value").fill("8");
-  await control(page, "button style").selectOption("solid");
+  await choose(page, "button style", "outline");
   await panel(page).getByRole("button", { name: "copy css" }).click();
-  await expect(page.locator("footer.status .keys")).toContainText("copied 2 values as css.");
+  await expect(page.locator("footer.status .note")).toHaveText("copied 2 values as css.");
   const css = await page.evaluate(() => (window as any).copied);
   expect(css).toContain(":root {\n  --radius-card: 8px;\n}");
-  expect(css).toContain('data-tool-style="solid"');
+  expect(css).toContain('data-tool-style="outline"');
 });
 
-test("grain draws a masked layer, behind the cards or above all", async ({ page }) => {
+test("grain is a masked noise layer behind the cards; it goes above all, turns to dither, or off", async ({ page }) => {
   await openPanel(page);
   const layer = () => page.evaluate(() => {
     const style = getComputedStyle(document.body, "::before");
     return { content: style.content, mask: style.maskImage.slice(0, 30), z: style.zIndex };
   });
-  expect((await layer()).content).toBe("none");
-  await group(page, "grain");
-  await control(page, "grain").selectOption("noise");
   expect(await layer()).toEqual({ content: '""', mask: 'url("data:image/svg+xml,%3Csvg', z: "0" });
-  await control(page, "layer").selectOption("above");
+  await group(page, "grain");
+  await choose(page, "layer", "above all");
   expect((await layer()).z).toBe("20");
-  await control(page, "grain").selectOption("dither");
+  await choose(page, "grain", "dither");
   await expect(control(page, "grain size value")).toHaveValue("4");
+  await choose(page, "grain", "off");
+  expect((await layer()).content).toBe("none");
 });

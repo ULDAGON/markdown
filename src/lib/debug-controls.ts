@@ -46,8 +46,8 @@ export const GROUPS: Group[] = [
   {
     title: "editor buttons",
     controls: [
-      pick("data-tool-style", "button style", ["ghost", "ghost"], ["outline", "outline"], ["solid", "solid"]),
-      pick("data-tool-hover", "hover", ["invert", "invert"], ["tint", "tint"], ["text", "text"]),
+      pick("data-tool-style", "button style", ["solid", "solid"], ["outline", "outline"], ["ghost", "ghost"]),
+      pick("data-tool-hover", "hover", ["tint", "tint"], ["invert", "invert"], ["text", "text"]),
       pick("data-tool-pressed", "pressed", ["outline", "outline"], ["fill", "fill"], ["underline", "underline"]),
       px("--tool-h", "button height", 16, 40),
       px("--tool-pad", "button padding x", 0, 16),
@@ -83,7 +83,7 @@ export const GROUPS: Group[] = [
   {
     title: "grain",
     controls: [
-      pick("data-grain", "grain", ["off", "off"], ["noise", "noise"], ["dither", "dither"]),
+      pick("data-grain", "grain", ["noise", "noise"], ["dither", "dither"], ["off", "off"]),
       pick("data-grain-layer", "layer", ["behind cards", "behind"], ["above all", "above"]),
       pick("--grain-color", "grain colour", ["text", "var(--c-text)"], ["accent", "var(--c-accent)"]),
       num("--grain-opacity", "opacity", 0, 0.5, 0.01),
@@ -94,7 +94,7 @@ export const GROUPS: Group[] = [
   },
   {
     title: "footer",
-    controls: [onOff("data-footer-stats", "stats"), onOff("data-footer-keys", "key hints"), num("--border-footer", "top border", 0, 4, 0.5, "px")],
+    controls: [onOff("data-footer-stats", "stats"), num("--border-footer", "top border", 0, 4, 0.5, "px")],
   },
   {
     title: "motion",

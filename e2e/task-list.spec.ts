@@ -86,7 +86,7 @@ test("the task tool on a new empty line makes a task item to type in", async ({ 
   await expect(sourceArea(page)).toHaveValue("first\n\n- [ ] new");
 });
 
-test("inline code toggles, and its placeholder takes the typed text", async ({ page }) => {
+test("inline code toggles, and at a caret an empty span takes the typed text", async ({ page }) => {
   await open(page, "alpha beta gamma");
   await select(page, "preview", { text: "beta" }, { text: "beta" });
   await clickTool(page, "preview", "inline code");
@@ -163,6 +163,12 @@ for (const { label, level, inline } of tools) {
         await select(page, card, ...(card === "preview" || inline ? preview : source));
         if (level === undefined) await clickTool(page, card, label);
         else await pickHeading(page, card, level);
+        // A mark at a caret has no text yet: the markdown card shows its markers, the preview its typing style.
+        // Both give the same markdown once there is text.
+        if (inline && preview.length === 1) {
+          await page.keyboard.type("x");
+          if (card === "preview") await leavePreview(page);
+        }
         await expect(sourceArea(page)).not.toHaveValue(markdown);
         return sourceArea(page).inputValue();
       };

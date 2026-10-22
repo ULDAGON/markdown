@@ -36,7 +36,7 @@ const pressed = async (page: Page) => {
   }
   return on;
 };
-const heading = (page: Page) => page.getByRole("region", { name: "preview", exact: true }).getByLabel("heading").inputValue();
+const heading = (page: Page) => page.getByRole("region", { name: "preview", exact: true }).getByRole("combobox", { name: "heading" }).getAttribute("data-value");
 
 // ------------------------------------------------------------------ inline marks
 

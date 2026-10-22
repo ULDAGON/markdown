@@ -6,6 +6,20 @@ const escape = (text: string) => text.replace(/[&<>"]/g, (c) => `&${{ "&": "amp"
 
 const exec = (command: string, arg?: string) => document.execCommand(command, false, arg);
 
+const TYPING = { bold: "bold", italic: "italic", strike: "strikeThrough" } as const;
+
+/**
+ * A mark at a caret outside that mark: the text typed next takes it, as in any rich-text editor. The preview shows no
+ * markdown, so the markers that the markdown card inserts would show as text here. Inline code has no such command:
+ * an empty code element holds the caret on a zero-width space, which toMarkdown drops.
+ */
+export function markAtCaret(id: "bold" | "italic" | "strike" | "code") {
+  if (id !== "code") return exec(TYPING[id]);
+  const code = Object.assign(document.createElement("code"), { textContent: "\u200b" });
+  getSelection()!.getRangeAt(0).insertNode(code);
+  getSelection()!.collapse(code.firstChild!, 1);
+}
+
 /** The closest element at the selection that matches the selector. */
 export function closest(selector: string): Element | null {
   const node = getSelection()?.anchorNode;

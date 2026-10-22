@@ -3,7 +3,7 @@ import { article, clickTool, expect, open, pickHeading, previewBlocks, sourceAre
 
 const MOD = "ControlOrMeta";
 const region = (page: Page, name: "markdown" | "preview") => page.getByRole("region", { name, exact: true });
-const note = (page: Page) => page.locator("footer.status .keys");
+const note = (page: Page) => page.locator("footer.status .note");
 const statusNumbers = (page: Page) => page.locator("footer.status .num");
 
 /**
@@ -48,8 +48,8 @@ type Case = { name: string; tool: string; spec: string; after: string; twice?: b
 // `after` is the text after one click; `twice` (default: no) asserts that a second click restores the text.
 const cases: Case[] = [
   // inline tools
-  { name: "bold on a caret inserts a placeholder", tool: "bold", spec: "he‹llo", after: "he**bold**llo" },
-  { name: "bold on an empty document", tool: "bold", spec: "‹", after: "**bold**" },
+  { name: "bold on a caret inserts only the markers", tool: "bold", spec: "he‹llo", after: "he****llo" },
+  { name: "bold on an empty document", tool: "bold", spec: "‹", after: "****" },
   { name: "bold on a word", tool: "bold", spec: "a ‹word› b", after: "a **word** b", twice: true },
   { name: "bold on part of a word", tool: "bold", spec: "he‹ll›o", after: "he**ll**o", twice: true },
   { name: "bold on the first line", tool: "bold", spec: "‹one›\ntwo", after: "**one**\ntwo", twice: true },
@@ -61,7 +61,7 @@ const cases: Case[] = [
   { name: "italic off", tool: "italic", spec: "a _‹word›_ b", after: "a word b" },
   { name: "strikethrough on a word", tool: "strikethrough", spec: "a ‹word› b", after: "a ~~word~~ b", twice: true },
   { name: "inline code on a word", tool: "inline code", spec: "a ‹word› b", after: "a `word` b", twice: true },
-  { name: "inline code on an empty document", tool: "inline code", spec: "‹", after: "`code`" },
+  { name: "inline code on an empty document", tool: "inline code", spec: "‹", after: "``" },
   // headings are in their own tests
   // quote
   { name: "quote on a caret", tool: "quote", spec: "on‹e", after: "> one", twice: true },
@@ -104,14 +104,14 @@ const cases: Case[] = [
   { name: "numbered list leaves the line after a selection that ends at a line start", tool: "numbered list", spec: "‹one\ntwo\n›three", after: "1. one\n2. two\nthree", twice: true },
   { name: "task list leaves the line after a selection that ends at a line start", tool: "task list", spec: "‹one\ntwo\n›three", after: "- [ ] one\n- [ ] two\nthree", twice: true },
   // link
-  { name: "link on a caret", tool: "link", spec: "a ‹ b", after: "a [text](https://) b" },
+  { name: "link on a caret", tool: "link", spec: "a ‹ b", after: "a [](https://) b" },
   { name: "link on a word", tool: "link", spec: "a ‹word› b", after: "a [word](https://) b" },
-  { name: "link on a selected URL", tool: "link", spec: "see ‹https://example.com›", after: "see [text](https://example.com)" },
+  { name: "link on a selected URL", tool: "link", spec: "see ‹https://example.com›", after: "see [](https://example.com)" },
   // blocks
   { name: "horizontal rule after a paragraph", tool: "horizontal rule", spec: "text‹", after: "text\n\n---\n" },
   { name: "horizontal rule in a document with text after it", tool: "horizontal rule", spec: "one‹\n\ntwo", after: "one\n\n---\n\ntwo" },
   { name: "code block on a selection", tool: "code block", spec: "‹x = 1›", after: "```\nx = 1\n```\n" },
-  { name: "code block on an empty document", tool: "code block", spec: "‹", after: "```\ncode\n```\n" },
+  { name: "code block on an empty document", tool: "code block", spec: "‹", after: "```\n\n```\n" },
   { name: "table on an empty document", tool: "table", spec: "‹", after: "| column | column |\n| --- | --- |\n| cell | cell |\n" },
 ];
 
@@ -185,36 +185,36 @@ for (const { name, level, spec, after } of headingCases) {
 test("the heading picker follows the caret line", async ({ page }) => {
   const lines = ["# a", "## b", "### c", "#### d", "##### e", "###### f", "text", "####### seven", "#nospace", ""];
   await open(page, lines.join("\n"));
-  const picker = region(page, "markdown").getByLabel("heading");
+  const picker = region(page, "markdown").getByRole("combobox", { name: "heading" });
   await setSelection(page, 0, 0);
   await page.keyboard.press("ControlOrMeta+Home");
   const expected = [1, 2, 3, 4, 5, 6, 0, 0, 0, 0];
   for (const level of expected) {
-    await expect(picker).toHaveValue(String(level));
+    await expect(picker).toHaveAttribute("data-value", String(level));
     await page.keyboard.press("ArrowDown");
   }
   for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowUp");
-  await expect(picker).toHaveValue("6");
+  await expect(picker).toHaveAttribute("data-value", "6");
 });
 
 test("the heading picker follows a click into another line", async ({ page }) => {
   await open(page, "# one\n\ntwo\n\n### three");
-  const picker = region(page, "markdown").getByLabel("heading");
+  const picker = region(page, "markdown").getByRole("combobox", { name: "heading" });
   const box = (await sourceArea(page).boundingBox())!;
   const lineHeight = await sourceArea(page).evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
   const padTop = await sourceArea(page).evaluate((el) => parseFloat(getComputedStyle(el).paddingTop));
   const lineY = (n: number) => box.y + padTop + lineHeight * (n + 0.5);
   await page.mouse.click(box.x + 40, lineY(4));
-  await expect(picker).toHaveValue("3");
+  await expect(picker).toHaveAttribute("data-value", "3");
   await page.mouse.click(box.x + 40, lineY(0));
-  await expect(picker).toHaveValue("1");
+  await expect(picker).toHaveAttribute("data-value", "1");
   await page.mouse.click(box.x + 40, lineY(2));
-  await expect(picker).toHaveValue("0");
+  await expect(picker).toHaveAttribute("data-value", "0");
 });
 
 test("the heading picker text option reads text and the options are text, h1 to h6", async ({ page }) => {
   await open(page, "x");
-  await expect(region(page, "markdown").getByLabel("heading").locator("option")).toHaveText(["text", "h1", "h2", "h3", "h4", "h5", "h6"]);
+  await expect(region(page, "markdown").locator("[role=option]")).toHaveText(["text", "h1", "h2", "h3", "h4", "h5", "h6"]);
 });
 
 // ---------------------------------------------------------------------------------------------------------- keys
@@ -398,8 +398,7 @@ test("the note of clear goes away by itself", async ({ page }) => {
   await open(page, "something");
   await page.getByRole("button", { name: "clear", exact: true }).click();
   await expect(note(page)).toContainText("cleared");
-  await expect(note(page)).toContainText("link", { timeout: 6000 });
-  await expect(note(page)).not.toContainText("cleared");
+  await expect(note(page)).toHaveText("", { timeout: 6000 });
 });
 
 // ---------------------------------------------------------------------------------------------------------- drop
@@ -533,7 +532,7 @@ test("a storage that refuses to write shows one note and the app keeps working",
   await sourceArea(page).press("End");
   await page.keyboard.type("!");
   await expect(note(page)).toContainText("not saved");
-  await expect(note(page)).toContainText("link", { timeout: 6000 });
+  await expect(note(page)).toHaveText("", { timeout: 6000 });
 
   // The user knows: the next edit shows no second note.
   await page.keyboard.type("?");
@@ -604,18 +603,16 @@ test("the theme switch can be used with the keyboard", async ({ page }) => {
 // ---------------------------------------------------------------------------------------------------------- status bar
 
 const counts: [name: string, text: string, status: RegExp][] = [
-  ["empty text", "", /^0 characters · 0 b · /],
-  ["one character", "a", /^1 character · 1 b · 1 min read$/],
-  ["two bytes in one character", "é", /^1 character · 2 b · 1 min read$/],
-  ["three bytes in one character", "€", /^1 character · 3 b · 1 min read$/],
-  ["a Japanese word", "日本語", /^3 characters · 9 b · 1 min read$/],
-  ["an emoji is one character", "😀", /^1 character · 4 b · 1 min read$/],
-  ["a flag is one character", "🇩🇪", /^1 character · 8 b · 1 min read$/],
-  ["only white space has no reading time", "  \n ", /^4 characters · 4 b · (?!\d)/],
-  ["200 words read in one minute", "word ".repeat(200), /^1,000 characters · 1000 b · 1 min read$/],
-  ["201 words read in two minutes", "word ".repeat(201), /^1,005 characters · 1005 b · 2 min read$/],
-  ["a kilobyte", "x".repeat(1024), /^1,024 characters · 1\.0 kb · 1 min read$/],
-  ["1300 characters", "x".repeat(1300), /^1,300 characters · 1\.3 kb · 1 min read$/],
+  ["empty text", "", /^0 characters · — read$/],
+  ["one character", "a", /^1 character · 1 min read$/],
+  ["a letter with an accent is one character", "é", /^1 character · 1 min read$/],
+  ["a Japanese word", "日本語", /^3 characters · 1 min read$/],
+  ["an emoji is one character", "😀", /^1 character · 1 min read$/],
+  ["a flag is one character", "🇩🇪", /^1 character · 1 min read$/],
+  ["only white space has no reading time", "  \n ", /^4 characters · — read$/],
+  ["200 words read in one minute", "word ".repeat(200), /^1,000 characters · 1 min read$/],
+  ["201 words read in two minutes", "word ".repeat(201), /^1,005 characters · 2 min read$/],
+  ["1300 characters", "x".repeat(1300), /^1,300 characters · 1 min read$/],
 ];
 
 for (const [name, text, status] of counts) {
@@ -629,17 +626,18 @@ test("the status bar follows typing", async ({ page }) => {
   await open(page, "");
   await sourceArea(page).focus();
   await page.keyboard.type("héllo");
-  await expect(statusNumbers(page)).toHaveText("5 characters · 6 b · 1 min read");
+  await expect(statusNumbers(page)).toHaveText("5 characters · 1 min read");
   await page.keyboard.press("Backspace");
-  await expect(statusNumbers(page)).toHaveText("4 characters · 5 b · 1 min read");
+  await expect(statusNumbers(page)).toHaveText("4 characters · 1 min read");
 });
 
-test("the status bar shows the key hints until a note comes, and again after it", async ({ page }) => {
+test("the footer shows no key hints and no size: only a note, and only while it lasts", async ({ page }) => {
   await open(page, "x");
-  await expect(note(page)).toContainText("bold");
+  await expect(note(page)).toHaveText("");
+  await expect(page.locator("footer.status")).not.toContainText(/bold|italic| b · |kb/);
   await page.getByRole("button", { name: "clear", exact: true }).click();
   await expect(note(page)).toContainText("cleared");
-  await expect(note(page)).toContainText("bold", { timeout: 6000 });
+  await expect(note(page)).toHaveText("", { timeout: 6000 });
 });
 
 // ---------------------------------------------------------------------------------------------------------- scroll sync
@@ -696,7 +694,7 @@ test.describe("layout at 1440x900", () => {
     const preview = await box(region(page, "preview"));
     await expect(page.locator("header")).toHaveCount(0);
 
-    expect(Math.abs(source.y - 20)).toBeLessThanOrEqual(1);
+    expect(Math.abs(source.y - 10)).toBeLessThanOrEqual(1);
     expect(Math.abs(source.y - preview.y)).toBeLessThanOrEqual(1);
     // Clear at the bottom left, the theme at the bottom right, both lined up with the cards.
     expect(Math.abs(clear.x - source.x)).toBeLessThanOrEqual(1);
@@ -759,4 +757,45 @@ test.describe("layout at 390x844", () => {
     const top = (await region(page, "markdown").boundingBox())!;
     expect(top.width).toBeGreaterThan(300);
   });
+});
+
+test("a mark at a caret puts the caret between its markers, so typing goes inside", async ({ page }) => {
+  for (const [tool, after] of [["bold", "a **x** b"], ["italic", "a *x* b"], ["strikethrough", "a ~~x~~ b"], ["inline code", "a `x` b"]]) {
+    await openMarked(page, "a ‹ b");
+    await clickTool(page, "markdown", tool);
+    await page.keyboard.type("x");
+    await expect(sourceArea(page)).toHaveValue(after);
+  }
+  await openMarked(page, "a ‹ b");
+  await clickTool(page, "markdown", "link");
+  await page.keyboard.type("x");
+  await expect(sourceArea(page)).toHaveValue("a [x](https://) b");
+});
+
+test("the heading dropdown opens in the theme, keeps the caret in the source, and closes on Escape", async ({ page }) => {
+  await openMarked(page, "a‹bc");
+  const picker = region(page, "markdown").getByRole("combobox", { name: "heading" });
+  await picker.click();
+  const list = region(page, "markdown").getByRole("listbox", { name: "heading options" });
+  await expect(list).toBeVisible();
+  expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("TEXTAREA");
+  await page.keyboard.press("Escape");
+  await expect(list).toBeHidden();
+  await picker.click();
+  await list.getByRole("option", { name: "h2", exact: true }).click();
+  await expect(sourceArea(page)).toHaveValue("## abc");
+});
+
+test("a hint shows at once on hover, in the theme", async ({ page }) => {
+  await open(page, "x");
+  const bold = region(page, "markdown").getByRole("button", { name: "bold" });
+  await bold.hover();
+  const hint = await bold.evaluate((el) => {
+    const style = getComputedStyle(el, "::before");
+    return { content: style.content, font: style.fontFamily, delay: style.transitionDelay };
+  });
+  expect(hint.content).toMatch(/^"bold · (⌘|ctrl\+)b"$/);
+  expect(hint.font).toContain("JetBrains Mono");
+  expect(hint.delay).toBe("0s");
+  expect(await bold.getAttribute("title")).toBeNull();
 });

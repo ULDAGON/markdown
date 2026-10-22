@@ -134,3 +134,9 @@ test("a block with a bare URL keeps its style and gives its source back", () => 
   const html = '<p>see <a href="https://example.com/a_b_c?x=1&amp;y=2">https://example.com/a_b_c?x=1&amp;y=2</a> and <em>it</em></p>';
   assert.doesNotThrow(() => toMarkdown(html, source));
 });
+
+test("an empty code span or mark that the preview leaves writes nothing", () => {
+  assert.equal(toMarkdown("<p>a <code>​</code>b</p>", "a b"), "a b");
+  assert.equal(toMarkdown("<p>a <code>​x</code> b</p>", "a b"), "a `x` b");
+  assert.equal(toMarkdown("<p>a <b></b>b</p>", "a b"), "a b");
+});

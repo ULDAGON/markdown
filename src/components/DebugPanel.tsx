@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { CONTROLS, GROUPS, storedKey, type Control } from "@/lib/debug-controls";
+import Select from "./Select";
 import type { Debug } from "./useDebug";
 
 /** The value of each control from the stylesheet alone: the inline value of the panel is taken away to read it. */
@@ -61,11 +62,7 @@ export default function DebugPanel({ debug, onClose, say }: Props) {
       );
     } else if (control.kind === "select") {
       input = (
-        <select className="field" value={value} onChange={(e) => set(key, e.target.value)} aria-label={control.label}>
-          {control.options.map(([label, option]) => (
-            <option key={option} value={option}>{label}</option>
-          ))}
-        </select>
+        <Select label={control.label} options={control.options.map(([label, value]) => ({ label, value }))} value={value} onChange={(next) => set(key, next)} />
       );
     } else {
       input = <input type="color" value={value ? hex(value) : "#000000"} onChange={(e) => set(key, e.target.value)} aria-label={`${control.label} (${theme})`} />;
@@ -74,7 +71,7 @@ export default function DebugPanel({ debug, onClose, say }: Props) {
       <div className="debug-row" key={control.key} data-changed={stored !== undefined || undefined}>
         <span className="debug-label">{control.label}{control.kind === "color" && <span className="dim"> · {theme}</span>}</span>
         <span className="debug-input">{input}</span>
-        <button type="button" className="debug-reset" title="reset" aria-label={`reset ${control.label}`} disabled={stored === undefined} onClick={() => set(key, undefined)}>×</button>
+        <button type="button" className="debug-reset" data-tip="reset" data-tip-end="" aria-label={`reset ${control.label}`} disabled={stored === undefined} onClick={() => set(key, undefined)}>×</button>
       </div>
     );
   }

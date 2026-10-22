@@ -10,13 +10,15 @@
   --serif: ui-serif, "New York", Georgia, "Times New Roman", serif;
   /* What the debug panel changes (lib/debug-controls.ts). The defaults are the ULDAGON look; px, not rem, because
      the panel reads them back into px sliders. */
-  --page-pad: 20px; --pane-gap: 12px; --footer-pad: 8px;
+  --page-pad: 10px; --pane-gap: 10px; --footer-pad: 10px;
   --source-pad-x: 18px; --source-pad-y: 16px; --preview-pad-x: 24px; --preview-pad-y: 18px; --preview-measure: none;
   --radius-card: 0px; --radius-control: 0px; --radius-tool: 0px; --radius-code: 0px; --radius-box: 0px;
   --border-card: 1px; --border-control: 1px; --border-toolbar: 1px; --border-footer: 0px;
   --tool-h: 24px; --tool-pad: 6px; --toolbar-gap: 2px; --toolbar-pad: 4px;
   --source-size: 13px; --source-leading: 1.65; --preview-font: var(--sans); --heading-scale: 1;
-  --grain-color: var(--c-text); --grain-opacity: .06; --grain-size: 160px; --grain-blend: normal;
+  --grain-color: var(--c-text); --grain-opacity: .1; --grain-size: 160px; --grain-blend: normal;
+  /* Lighter hairlines than the ULDAGON tokens (14% dark, 16% light), in both themes: this rule comes after them. */
+  --line-a: 10%;
 }
 
 /* ------------------------------------------------------------------ base */
@@ -80,20 +82,21 @@ button, input, select, textarea { font: inherit; color: inherit; }
 [data-tool-seps=off] .toolbar .sep, [data-card-labels=off] .toolbar .label { display: none; }
 .toolbar .sep { width: 1px; height: 14px; margin: 0 6px; background: var(--c-line); }
 .toolbar .label { margin-left: auto; padding: 0 6px; font-size: var(--size-label); letter-spacing: var(--label-track); text-transform: uppercase; color: var(--c-text-dim); }
-/* A tool has a style at rest (data-tool-style), on hover (data-tool-hover) and when pressed (data-tool-pressed). */
+/* A tool has a style at rest (data-tool-style), on hover (data-tool-hover) and when pressed (data-tool-pressed).
+   Without the attributes it is solid, tints on hover and is outlined when pressed. */
 .tool {
-  --tool-bg: transparent; --tool-line: transparent;
+  --tool-bg: var(--c-surface-2); --tool-line: transparent;
   min-width: var(--tool-h); height: var(--tool-h); padding: 0 var(--tool-pad); cursor: pointer;
   border: var(--border-control) solid var(--tool-line); border-radius: var(--radius-tool); background: var(--tool-bg);
   transition: color var(--t-fast) ease, background-color var(--t-fast) ease, border-color var(--t-fast) ease;
 }
-[data-tool-style=outline] :is(.tool, .pick select) { --tool-line: var(--c-line-strong); }
-[data-tool-style=solid] :is(.tool, .pick select) { --tool-bg: var(--c-surface-2); }
-.tool:hover { color: var(--c-accent-ink); background: var(--c-accent); }
-[data-tool-hover=tint] .tool:hover { color: var(--c-accent-text); background: var(--c-wash); }
+[data-tool-style=outline] :is(.tool, .toolbar .select-button) { --tool-bg: transparent; --tool-line: var(--c-line-strong); }
+[data-tool-style=ghost] :is(.tool, .toolbar .select-button) { --tool-bg: transparent; }
+.tool:hover { color: var(--c-accent-text); background: var(--c-wash); }
+[data-tool-hover=invert] .tool:hover { color: var(--c-accent-ink); background: var(--c-accent); }
 [data-tool-hover=text] .tool:hover { color: var(--c-accent-text); background: var(--tool-bg); }
 .tool[aria-pressed=true] { color: var(--c-accent-text); border-color: var(--c-accent-text); }
-.tool[aria-pressed=true]:hover { color: var(--c-accent-ink); }
+[data-tool-hover=invert] .tool[aria-pressed=true]:hover { color: var(--c-accent-ink); }
 [data-tool-pressed=fill] .tool[aria-pressed=true] { color: var(--c-accent-ink); background: var(--c-accent); border-color: var(--c-accent); }
 [data-tool-pressed=underline] .tool[aria-pressed=true] {
   border-color: var(--tool-line); text-decoration: underline 2px var(--c-accent); text-underline-offset: 4px;
@@ -102,15 +105,37 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tool.i { font-style: italic; }
 .tool.s { text-decoration: line-through; }
 
-.pick { position: relative; display: inline-flex; }
-.pick::after { content: "▾"; position: absolute; right: 6px; top: 50%; translate: 0 -50%; color: var(--c-text-dim); pointer-events: none; }
-.pick select {
-  --tool-bg: transparent; --tool-line: var(--c-line);
-  appearance: none; height: var(--tool-h); padding: 0 22px 0 var(--tool-pad); cursor: pointer;
-  border: var(--border-control) solid var(--tool-line); border-radius: var(--radius-tool); background: var(--tool-bg);
+/* A listbox in the theme (Select.tsx), as in the ULDAGON kit: the native popup of a <select> cannot take it. */
+.select { position: relative; display: inline-flex; }
+.select-button {
+  --tool-bg: var(--c-surface-2); --tool-line: var(--c-line);
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; height: var(--tool-h); padding: 0 var(--tool-pad);
+  border: var(--border-control) solid var(--tool-line); border-radius: var(--radius-tool); background: var(--tool-bg); cursor: pointer;
 }
-.pick select:hover { border-color: var(--c-line-strong); }
-.pick select option { background: var(--c-bg); color: var(--c-text); }
+.select-button::after { content: "▾"; color: var(--c-text-dim); }
+.select-button:hover { border-color: var(--c-line-strong); }
+.select-button[aria-expanded=true] { border-color: var(--c-accent-text); }
+.options {
+  position: absolute; z-index: 35; top: calc(100% + 2px); left: 0; min-width: 100%; margin: 0; padding: 2px 0; list-style: none;
+  white-space: nowrap; background: var(--c-bg); border: 1px solid var(--c-accent-text);
+}
+.options li { padding: 3px 10px 3px 6px; cursor: pointer; }
+/* The marker is decoration: "/ ''" keeps it out of the name of the option, which a screen reader reads. */
+.options li::before { content: "  " / ""; white-space: pre; }
+.options li[aria-selected=true]::before { content: "> " / ""; color: var(--c-accent-text); }
+.options li[data-active] { color: var(--c-accent-ink); background: var(--c-accent); }
+.options li[data-active]::before { color: inherit; }
+
+/* A hint on hover, at once and in the theme: the native title waits and cannot take the theme. It sets its own
+   type, as the B, I and S buttons would pass on their weight, slant and line. */
+[data-tip] { position: relative; }
+[data-tip]:hover::before {
+  content: attr(data-tip); position: absolute; z-index: 40; top: calc(100% + 6px); left: 0; padding: 3px 7px; pointer-events: none;
+  white-space: nowrap; font: 400 var(--size-small) / 1.3 var(--mono); font-style: normal; letter-spacing: 0; text-transform: none;
+  color: var(--c-text); background: var(--c-bg); border: 1px solid var(--c-line-strong);
+}
+[data-tip-up]:hover::before { top: auto; bottom: calc(100% + 6px); }
+[data-tip-end]:hover::before { left: auto; right: 0; }
 
 /* The link field covers the toolbar until enter or esc. */
 .ask { position: absolute; inset: 0; display: flex; align-items: center; gap: 8px; padding: 4px; background: var(--c-surface-2); }
@@ -201,9 +226,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
   border-top: var(--border-footer) solid var(--c-line); font-size: var(--size-small); color: var(--c-text-dim);
 }
 .num { font-variant-numeric: tabular-nums; }
-.status .keys { margin-left: auto; }
-.status kbd { font: inherit; color: var(--c-text); }
-[data-footer-stats=off] .status .stats, [data-footer-keys=off] .status .keys:not([data-note]) { visibility: hidden; }
+.status .note { margin-left: auto; }
+[data-footer-stats=off] .status .stats { visibility: hidden; }
 .link {
   padding: 0; border: 0; background: none; color: inherit; cursor: pointer;
   text-decoration: underline 1px var(--c-line-strong); text-underline-offset: 3px;
@@ -211,14 +235,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .link:hover { color: var(--c-text); text-decoration-color: var(--c-accent); }
 
 /* ------------------------------------------------------------------ grain */
-/* A fixed layer in a token colour, cut by a mask of noise or of a 4x4 Bayer dither; behind the cards or above all. */
+/* A fixed layer in a token colour, cut by a mask of noise (the default) or of a 4x4 Bayer dither; behind the cards or above all. */
 .panes, .status { position: relative; z-index: 1; }
-:root:is([data-grain=noise], [data-grain=dither]) body::before {
+:root:not([data-grain=off]) body::before {
   content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
   background: var(--grain-color); opacity: var(--grain-opacity); mix-blend-mode: var(--grain-blend);
   mask-size: var(--grain-size); mask-repeat: repeat;
 }
-:root[data-grain=noise] body::before { mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2.2 0 0 0 -.6'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url%28%23n%29'/%3E%3C/svg%3E"); }
+:root:not([data-grain=off]) body::before { mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2.2 0 0 0 -.6'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url%28%23n%29'/%3E%3C/svg%3E"); }
 :root[data-grain=dither] { --grain-size: 4px; }
 :root[data-grain=dither] body::before { mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' shape-rendering='crispEdges'%3E%3Crect x='0' y='0' width='1' height='1'/%3E%3Crect x='2' y='0' width='1' height='1'/%3E%3Crect x='1' y='1' width='1' height='1'/%3E%3Crect x='3' y='1' width='1' height='1'/%3E%3Crect x='0' y='2' width='1' height='1'/%3E%3Crect x='2' y='2' width='1' height='1'/%3E%3Crect x='1' y='3' width='1' height='1'/%3E%3Crect x='3' y='3' width='1' height='1'/%3E%3C/svg%3E"); }
 :root[data-grain-layer=above] body::before { z-index: 20; }
@@ -253,7 +277,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .debug-input input[type=range] { width: 110px; accent-color: var(--c-accent); }
 .debug-input .field { height: 22px; padding: 0 4px; border-width: 1px; border-radius: 0; font-size: var(--size-small); }
 .debug-input input.field { width: 56px; }
-.debug-input select.field { width: 172px; }
+.debug .select-button { --tool-bg: var(--c-surface); width: 172px; height: 22px; padding: 0 6px; border-width: 1px; border-radius: 0; font-size: var(--size-small); }
+.debug .options { font-size: var(--size-small); }
 .debug-input input[type=color] { width: 40px; height: 22px; padding: 0; border: 1px solid var(--c-line); background: none; cursor: pointer; }
 
 @media (max-width: 760px) {

@@ -23,8 +23,10 @@ test("wrap marks the selection", () => {
   assert.equal(run("code", "x", 0, 1).text, "`x`");
 });
 
-test("wrap inserts a placeholder at a caret", () => {
-  assert.deepEqual(run("bold", "", 0), { text: "**bold**", selected: "bold" });
+test("wrap inserts only the markers at a caret, with the caret between them", () => {
+  assert.deepEqual(run("bold", "", 0), { text: "****", selected: "" });
+  assert.deepEqual(sourceEdit("bold", "a ", 2, 2).select, [2, 2]);
+  assert.deepEqual(sourceEdit("code", "", 0, 0), { start: 0, end: 0, text: "``", select: [1, 1] });
 });
 
 test("wrap unwraps markers around the selection", () => {
@@ -47,7 +49,7 @@ test("italic reads an underscore and a star, and tells a star from bold", () => 
   assert.deepEqual(run("italic", "a **word** b", 2, 10), { text: "a ***word*** b", selected: "**word**" });
   assert.equal(run("italic", "a ***word*** b", 5, 9).text, "a **word** b");
   assert.equal(run("bold", "a ***word*** b", 5, 9).text, "a *word* b");
-  assert.equal(run("italic", "a **word** b", 6).text, "a **wo*italic*rd** b");
+  assert.equal(run("italic", "a **word** b", 6).text, "a **wo**rd** b");
 });
 
 test("bold then italic, and both off again, restore the text", () => {
@@ -67,8 +69,8 @@ test("a caret inside a span of the mark removes the span", () => {
 });
 
 test("a caret between two spans of the mark is outside both", () => {
-  assert.equal(run("bold", "**a** b **c**", 7).text, "**a** b**bold** **c**");
-  assert.equal(run("italic", "* *a* b", 7).text, "* *a* b*italic*");
+  assert.equal(run("bold", "**a** b **c**", 7).text, "**a** b**** **c**");
+  assert.equal(run("italic", "* *a* b", 7).text, "* *a* b**");
 });
 
 test("a mark across blocks marks the text of each block inside its line syntax", () => {
@@ -127,8 +129,8 @@ test("italic writes the emphasis of its block, else of the document, and a star 
   assert.equal(run("italic", "_a_\n\n*d* b", 9, 10).text, "_a_\n\n*d* *b*");
   assert.equal(run("italic", "_a_ snake_case", 10, 14).text, "_a_ snake_*case*");
   assert.equal(run("italic", "_a_ bc", 4, 5).text, "_a_ *b*c");
-  assert.equal(run("italic", "_a_ b ", 6).text, "_a_ b _italic_");
-  assert.equal(run("italic", "_a_ b", 5).text, "_a_ b*italic*");
+  assert.equal(run("italic", "_a_ b ", 6).text, "_a_ b __");
+  assert.equal(run("italic", "_a_ b", 5).text, "_a_ b**");
 });
 
 test("code fences text with backticks in a longer run", () => {
@@ -142,8 +144,8 @@ test("a mark on a table marks each cell", () => {
 });
 
 test("a mark at a caret outside any text goes after the line syntax", () => {
-  assert.equal(run("bold", "- ", 0).text, "- **bold**");
-  assert.equal(run("bold", "a\n\nb", 2).text, "a\n**bold**\nb");
+  assert.equal(run("bold", "- ", 0).text, "- ****");
+  assert.equal(run("bold", "a\n\nb", 2).text, "a\n****\nb");
 });
 
 test("a mark on a selection without inline text changes nothing", () => {
@@ -356,12 +358,13 @@ test("link wraps the selection and selects the address", () => {
   assert.deepEqual(run("link", "see here", 4, 8), { text: "see [here](https://)", selected: "https://" });
 });
 
-test("link without a selection inserts a text and an address", () => {
-  assert.deepEqual(run("link", "", 0), { text: "[text](https://)", selected: "https://" });
+test("link without a selection puts the caret in empty brackets before the address", () => {
+  assert.deepEqual(run("link", "", 0), { text: "[](https://)", selected: "" });
+  assert.deepEqual(sourceEdit("link", "", 0, 0).select, [1, 1]);
 });
 
-test("link with a selected URL keeps the URL and selects the text", () => {
-  assert.deepEqual(run("link", "https://uldagon.com", 0, 19), { text: "[text](https://uldagon.com)", selected: "text" });
+test("link with a selected URL keeps the URL and puts the caret in the text", () => {
+  assert.deepEqual(run("link", "https://uldagon.com", 0, 19), { text: "[](https://uldagon.com)", selected: "" });
 });
 
 test("block at the start of the text has no blank line before", () => {
@@ -378,9 +381,10 @@ test("block keeps blank lines that exist", () => {
   assert.equal(run("hr", "a\n\n", 3).text, "a\n\n---\n");
 });
 
-test("code block wraps the selection, or a placeholder", () => {
+test("code block wraps the selection, or an empty line with the caret on it", () => {
   assert.deepEqual(run("codeblock", "x = 1", 0, 5), { text: "```\nx = 1\n```\n", selected: "x = 1" });
-  assert.deepEqual(run("codeblock", "", 0), { text: "```\ncode\n```\n", selected: "code" });
+  assert.deepEqual(run("codeblock", "", 0), { text: "```\n\n```\n", selected: "" });
+  assert.deepEqual(sourceEdit("codeblock", "", 0, 0).select, [4, 4]);
 });
 
 test("table inserts a table and selects the first header", () => {
